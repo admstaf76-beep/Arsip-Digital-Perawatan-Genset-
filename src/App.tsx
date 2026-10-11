@@ -8,6 +8,7 @@ import {
   AuditLogItem,
   UserSession,
   ReadinessCondition,
+  GensetOperationalRecord,
 } from './types/genset';
 import {
   getStoredGensets,
@@ -18,6 +19,8 @@ import {
   saveStoredMaintenances,
   getStoredIncidents,
   saveStoredIncidents,
+  getStoredOperational,
+  saveStoredOperational,
   getStoredSOP,
   saveStoredSOP,
   getStoredAudit,
@@ -31,6 +34,7 @@ import {
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './components/Dashboard';
 import { MasterGenset } from './components/MasterGenset';
+import { OperasionalGenset } from './components/OperasionalGenset';
 import { PemeriksaanKondisi } from './components/PemeriksaanKondisi';
 import { PerawatanGenset } from './components/PerawatanGenset';
 import { KerusakanPerbaikan } from './components/KerusakanPerbaikan';
@@ -39,6 +43,16 @@ import { ApprovalSystem } from './components/ApprovalSystem';
 import { ExportLaporan } from './components/ExportLaporan';
 import { LoginModal } from './components/LoginModal';
 import { AuditLogModal } from './components/AuditLogModal';
+import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
+import { getAccessToken, initAuth } from './services/googleAuth';
+import {
+  getSavedSpreadsheetId,
+  isAutoSyncEnabled,
+  appendInspectionToSheet,
+  appendMaintenanceToSheet,
+  appendIncidentToSheet,
+  appendOperationalToSheet,
+} from './services/googleSheets';
 
 export default function App() {
   // Primary Persistent State
@@ -46,6 +60,7 @@ export default function App() {
   const [inspections, setInspections] = useState<InspectionRecord[]>(getStoredInspections);
   const [maintenances, setMaintenances] = useState<MaintenanceRecord[]>(getStoredMaintenances);
   const [incidents, setIncidents] = useState<IncidentRecord[]>(getStoredIncidents);
+  const [operationalRecords, setOperationalRecords] = useState<GensetOperationalRecord[]>(getStoredOperational);
   const [sopLogs, setSopLogs] = useState<SOPChecklistRecord[]>(getStoredSOP);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(getStoredAudit);
   const [activeUser, setUser] = useState<UserSession>(getActiveUser);
@@ -62,6 +77,12 @@ export default function App() {
   const [isNewInspectionOpen, setIsNewInspectionOpen] = useState(false);
   const [isNewMaintenanceOpen, setIsNewMaintenanceOpen] = useState(false);
   const [isNewIncidentOpen, setIsNewIncidentOpen] = useState(false);
+  const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
+
+  // Initialize Auth state listener
+  useEffect(() => {
+    initAuth();
+  }, []);
 
   // Toast Notification
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -184,6 +205,22 @@ export default function App() {
     );
     setAuditLogs(updatedLogs);
     showToast(`Checklist pemeriksaan ${record.gensetName} berhasil disimpan.`);
+
+    // Real-time synchronization to Google Sheets if configured
+    if (isAutoSyncEnabled()) {
+      getAccessToken().then((token) => {
+        const sheetId = getSavedSpreadsheetId();
+        if (token && sheetId) {
+          appendInspectionToSheet(token, sheetId, record)
+            .then(() => {
+              showToast(`Data inspeksi ${record.gensetName} otomatis disinkronkan ke Google Sheets.`);
+            })
+            .catch((err) => {
+              console.warn('Real-time Google Sheets sync error:', err);
+            });
+        }
+      });
+    }
   };
 
   // Handler for Maintenance Work Order Save
@@ -198,6 +235,22 @@ export default function App() {
     );
     setAuditLogs(updatedLogs);
     showToast(`SPK ${record.nomorPekerjaan} berhasil disubmit ke antrean Kadislog.`);
+
+    // Real-time synchronization to Google Sheets if configured
+    if (isAutoSyncEnabled()) {
+      getAccessToken().then((token) => {
+        const sheetId = getSavedSpreadsheetId();
+        if (token && sheetId) {
+          appendMaintenanceToSheet(token, sheetId, record)
+            .then(() => {
+              showToast(`SPK ${record.nomorPekerjaan} otomatis disinkronkan ke Google Sheets.`);
+            })
+            .catch((err) => {
+              console.warn('Real-time Google Sheets sync error:', err);
+            });
+        }
+      });
+    }
   };
 
   // Handler for Kadislog Approval
@@ -281,6 +334,22 @@ export default function App() {
     );
     setAuditLogs(updatedLogs);
     showToast(`Laporan kerusakan ${incident.nomorLaporan} berhasil dicatat.`);
+
+    // Real-time synchronization to Google Sheets if configured
+    if (isAutoSyncEnabled()) {
+      getAccessToken().then((token) => {
+        const sheetId = getSavedSpreadsheetId();
+        if (token && sheetId) {
+          appendIncidentToSheet(token, sheetId, incident)
+            .then(() => {
+              showToast(`Laporan ${incident.nomorLaporan} otomatis disinkronkan ke Google Sheets.`);
+            })
+            .catch((err) => {
+              console.warn('Real-time Google Sheets sync error:', err);
+            });
+        }
+      });
+    }
   };
 
   // Handler for Incident Status Update
@@ -337,6 +406,71 @@ export default function App() {
     showToast(`Verifikasi keselamatan K3 untuk ${record.gensetName} berhasil disimpan.`);
   };
 
+  // Handler for Operational Logbook & 3-stage Inspection Save
+  const handleSaveOperationalRecord = (record: GensetOperationalRecord, isNew: boolean) => {
+    let updated: GensetOperationalRecord[];
+    if (isNew) {
+      updated = [record, ...operationalRecords];
+    } else {
+      updated = operationalRecords.map((r) => (r.id === record.id ? record : r));
+    }
+    setOperationalRecords(updated);
+    saveStoredOperational(updated);
+
+    // If final hour meter is provided and higher, sync back to master genset
+    if (record.hourMeterAkhir && record.hourMeterAkhir > 0) {
+      const updatedGensets = gensets.map((g) => {
+        if (g.id === record.gensetId && record.hourMeterAkhir > g.jamOperasi) {
+          return {
+            ...g,
+            jamOperasi: record.hourMeterAkhir,
+          };
+        }
+        return g;
+      });
+      setGensets(updatedGensets);
+      saveStoredGensets(updatedGensets);
+    }
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      isNew ? 'Catat Operasional Genset' : 'Update Log Operasional',
+      `Log ${record.nomorLog} pada ${record.gensetName} (${record.keperluan}), status: ${record.status}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Catatan operasional ${record.nomorLog} berhasil disimpan.`);
+
+    // Real-time synchronization to Google Sheets if configured
+    if (isAutoSyncEnabled()) {
+      getAccessToken().then((token) => {
+        const sheetId = getSavedSpreadsheetId();
+        if (token && sheetId) {
+          appendOperationalToSheet(token, sheetId, record)
+            .then(() => {
+              showToast(`Log operasional ${record.nomorLog} otomatis disinkronkan ke Google Sheets.`);
+            })
+            .catch((err) => {
+              console.warn('Real-time Google Sheets operational sync error:', err);
+            });
+        }
+      });
+    }
+  };
+
+  // Handler for Deleting Operational Record
+  const handleDeleteOperationalRecord = (id: string) => {
+    const updated = operationalRecords.filter((r) => r.id !== id);
+    setOperationalRecords(updated);
+    saveStoredOperational(updated);
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Hapus Log Operasional',
+      `Menghapus catatan operasional ID: ${id}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast('Catatan operasional berhasil dihapus.');
+  };
+
   // Export handlers
   const handleExportCSV = () => {
     exportGensetToCSV(gensets);
@@ -374,8 +508,10 @@ export default function App() {
         activeUser={activeUser}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onOpenAuditModal={() => setIsAuditModalOpen(true)}
+        onOpenGoogleSheetsModal={() => setIsGoogleSheetsModalOpen(true)}
         pendingApprovalCount={pendingApprovalCount}
         openIncidentsCount={openIncidentsCount}
+        runningOperationsCount={operationalRecords.filter((r) => r.status === 'Beroperasi').length}
       />
 
       {/* Main Content Area */}
@@ -410,12 +546,23 @@ export default function App() {
         {activeTab === 'master' && (
           <MasterGenset
             gensets={gensets}
+            maintenances={maintenances}
             activeUser={activeUser}
             onSaveGenset={handleSaveGenset}
             onDeleteGenset={handleDeleteGenset}
             onExportCSV={handleExportCSV}
             selectedGensetDetail={selectedGensetDetail}
             setSelectedGensetDetail={setSelectedGensetDetail}
+          />
+        )}
+
+        {activeTab === 'operasional' && (
+          <OperasionalGenset
+            operationalRecords={operationalRecords}
+            gensets={gensets}
+            activeUser={activeUser}
+            onSaveOperationalRecord={handleSaveOperationalRecord}
+            onDeleteOperationalRecord={handleDeleteOperationalRecord}
           />
         )}
 
@@ -508,6 +655,17 @@ export default function App() {
         isOpen={isAuditModalOpen}
         onClose={() => setIsAuditModalOpen(false)}
         logs={auditLogs}
+      />
+
+      {/* Google Sheets Sync & Real-Time Settings Modal */}
+      <GoogleSheetsSyncModal
+        isOpen={isGoogleSheetsModalOpen}
+        onClose={() => setIsGoogleSheetsModalOpen(false)}
+        gensets={gensets}
+        inspections={inspections}
+        maintenances={maintenances}
+        incidents={incidents}
+        onNotify={showToast}
       />
 
       {/* Footer (Anti-slop compliant) */}

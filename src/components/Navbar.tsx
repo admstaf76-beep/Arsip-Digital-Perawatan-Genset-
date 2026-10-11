@@ -14,7 +14,9 @@ import {
   RefreshCw,
   Menu,
   X,
+  FileSpreadsheet,
   History,
+  Gauge,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -23,8 +25,10 @@ interface NavbarProps {
   activeUser: UserSession;
   onOpenLoginModal: () => void;
   onOpenAuditModal: () => void;
+  onOpenGoogleSheetsModal: () => void;
   pendingApprovalCount: number;
   openIncidentsCount: number;
+  runningOperationsCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,12 +37,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeUser,
   onOpenLoginModal,
   onOpenAuditModal,
+  onOpenGoogleSheetsModal,
   pendingApprovalCount,
   openIncidentsCount,
+  runningOperationsCount = 0,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<string>('Tersimpan di Cloud & Spreadsheet');
+  const [syncStatus, setSyncStatus] = useState<string>('Google Sheets Terintegrasi');
 
   const handleManualSync = () => {
     setIsSyncing(true);
@@ -52,6 +58,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Activity },
     { id: 'master', label: 'Master Genset', icon: Zap },
+    {
+      id: 'operasional',
+      label: 'Logbook Operasional',
+      icon: Gauge,
+      badge: runningOperationsCount > 0 ? runningOperationsCount : undefined,
+      badgeColor: 'bg-emerald-600 text-white animate-pulse',
+    },
     { id: 'pemeriksaan', label: 'Pemeriksaan (13 Item)', icon: CheckSquare },
     { id: 'perawatan', label: 'Perawatan CMMS', icon: Wrench },
     {
@@ -112,20 +125,20 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Zone 2: Sync Status & History (Desktop) */}
           <div className="hidden lg:flex items-center gap-4 text-xs text-slate-500">
             <button
-              onClick={handleManualSync}
-              title="Klik untuk simulasi sinkronisasi ke Google Spreadsheet"
-              className="flex items-center gap-1.5 hover:text-blue-700 transition-colors cursor-pointer"
+              onClick={onOpenGoogleSheetsModal}
+              title="Buka panel Sinkronisasi Google Sheets"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
             >
-              <Database className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{syncStatus}</span>
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="font-semibold">{syncStatus}</span>
               <RefreshCw
-                className={`w-3 h-3 text-slate-400 ${isSyncing ? 'animate-spin text-blue-600' : ''}`}
+                className={`w-3 h-3 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`}
               />
             </button>
             <span className="text-slate-300">|</span>
             <button
               onClick={onOpenAuditModal}
-              className="flex items-center gap-1.5 hover:text-blue-700 transition-colors"
+              className="flex items-center gap-1.5 hover:text-blue-700 transition-colors cursor-pointer"
             >
               <History className="w-3.5 h-3.5 text-slate-500" />
               <span>Histori Perubahan</span>
@@ -201,13 +214,22 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Mobile Drawer Navigation */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-2 pb-4 space-y-1">
-          <div className="p-2 mb-2 bg-slate-50 rounded-lg text-xs flex items-center justify-between">
-            <span className="text-slate-600">Status Database:</span>
-            <span className="font-semibold text-emerald-700 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-              Tersinkronisasi
+          <button
+            onClick={() => {
+              onOpenGoogleSheetsModal();
+              setMobileMenuOpen(false);
+            }}
+            className="w-full p-2.5 mb-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs flex items-center justify-between hover:bg-emerald-100 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-1.5 font-semibold text-emerald-800">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Google Sheets Terintegrasi</span>
+            </div>
+            <span className="font-semibold text-emerald-700 flex items-center gap-1 text-[11px]">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+              Buka Pengaturan →
             </span>
-          </div>
+          </button>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;

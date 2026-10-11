@@ -55,6 +55,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({
   gensets,
+  inspections,
   maintenances,
   incidents,
   activeUser,
@@ -90,6 +91,88 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Filter state for Interactive Pie Chart & Unit List
   const [selectedKondisiFilter, setSelectedKondisiFilter] = React.useState<string>('ALL');
+
+  // Filter state for Health Score Trend (All Gensets or specific genset)
+  const [selectedTrendGenset, setSelectedTrendGenset] = React.useState<string>('ALL');
+
+  // Calculate 30-day Health Score trend from inspections
+  const healthTrendData = React.useMemo(() => {
+    // Generate dates for the last 30 days up to 2026-10-10
+    const dates: string[] = [];
+    const baseDate = new Date('2026-10-10T12:00:00Z');
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() - i);
+      dates.push(d.toISOString().slice(0, 10));
+    }
+
+    // Filter inspections if specific genset is selected
+    const targetInspections =
+      selectedTrendGenset === 'ALL'
+        ? inspections
+        : inspections.filter((i) => i.gensetId === selectedTrendGenset);
+
+    return dates.map((dateStr) => {
+      // Find inspections on or right before this date to assess health
+      const dateInspections = targetInspections.filter((i) => i.tanggal === dateStr);
+      const priorInspections = targetInspections
+        .filter((i) => i.tanggal <= dateStr)
+        .sort((a, b) => (b.tanggal > a.tanggal ? 1 : -1));
+
+      let score = 85; // baseline
+      let inspCount = dateInspections.length;
+      let statusLabel = 'Normal';
+
+      if (dateInspections.length > 0) {
+        const scores = dateInspections.map((i) => {
+          if (i.status === 'Normal') return 92;
+          if (i.status === 'Perhatian') return 70;
+          return 42;
+        });
+        score = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+        statusLabel = dateInspections[0].status;
+      } else if (priorInspections.length > 0) {
+        // Carry forward previous inspection status with minor variation
+        const latest = priorInspections[0];
+        if (latest.status === 'Normal') score = 90;
+        else if (latest.status === 'Perhatian') score = 68;
+        else score = 45;
+        statusLabel = latest.status;
+      }
+
+      // Format human-readable date label: "12 Sep", "10 Okt"
+      const parts = dateStr.split('-');
+      const day = parts[2];
+      const monthNames = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+        'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'
+      ];
+      const monthName = monthNames[parseInt(parts[1], 10) - 1] || parts[1];
+      const displayDate = `${day} ${monthName}`;
+
+      return {
+        date: dateStr,
+        displayDate,
+        healthScore: score,
+        inspections: inspCount,
+        status: statusLabel,
+        kondisi: score >= 80 ? 'Siap (S)' : score >= 60 ? 'US Ringan' : 'Tidak Siap (US)',
+      };
+    });
+  }, [inspections, selectedTrendGenset]);
+
+  const currentAvgTrendScore = healthTrendData.length > 0
+    ? Math.round(healthTrendData.reduce((acc, d) => acc + d.healthScore, 0) / healthTrendData.length)
+    : 0;
+  const latestTrendScore = healthTrendData.length > 0
+    ? healthTrendData[healthTrendData.length - 1].healthScore
+    : 0;
+  const minTrendScore = healthTrendData.length > 0
+    ? Math.min(...healthTrendData.map((d) => d.healthScore))
+    : 0;
+  const maxTrendScore = healthTrendData.length > 0
+    ? Math.max(...healthTrendData.map((d) => d.healthScore))
+    : 0;
 
   // Breakdown data for Recharts Pie Chart (Kondisi S, US Ringan, US)
   const readinessData = [
@@ -255,6 +338,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span>Review Approval ({pendingApprovalCount})</span>
               </button>
             )}
+            <button
+              onClick={() => onNavigate('operasional')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-xs cursor-pointer"
+              title="Akses Sub Menu Logbook Pengoperasian Genset"
+            >
+              <Gauge className="w-4 h-4" />
+              <span>Logbook Operasional</span>
+            </button>
             <button
               onClick={() => onNavigate('laporan')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-xs cursor-pointer"
@@ -585,6 +676,200 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </button>
               );
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* LINE CHART: Tren Health Score Genset 30 Hari Terakhir (Recharts) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900">
+                Tren Health Score Genset (30 Hari Terakhir)
+              </h3>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                Data Log Pemeriksaan
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Visualisasi perkembangan skor kelayakan dan kondisi genset berdasarkan histori inspeksi harian/mingguan
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="text-xs text-slate-500 font-medium">Filter Unit:</span>
+            <select
+              value={selectedTrendGenset}
+              onChange={(e) => setSelectedTrendGenset(e.target.value)}
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="ALL">Semua Unit (Rata-rata Denma)</option>
+              {gensets.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.kode} - {g.nama}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Summary metric pill counters */}
+        <div className="px-6 py-3 bg-slate-50/60 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Skor Terkini</span>
+            <span className="text-base font-bold font-mono text-slate-900">
+              {latestTrendScore}%
+            </span>
+            <span className="text-[10px] text-slate-400 ml-1 font-mono">
+              ({latestTrendScore >= 80 ? 'S' : latestTrendScore >= 60 ? 'US Ringan' : 'US'})
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Rata-rata 30 Hari</span>
+            <span className="text-base font-bold font-mono text-blue-700">
+              {currentAvgTrendScore}%
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Skor Minimum</span>
+            <span className="text-base font-bold font-mono text-red-600">
+              {minTrendScore}%
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Skor Tertinggi</span>
+            <span className="text-base font-bold font-mono text-emerald-600">
+              {maxTrendScore}%
+            </span>
+          </div>
+        </div>
+
+        {/* Recharts Responsive Line Chart */}
+        <div className="p-6">
+          <div className="h-64 sm:h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={healthTrendData}
+                margin={{ top: 10, right: 15, left: -15, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="displayDate"
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
+                />
+                <YAxis
+                  domain={[30, 100]}
+                  ticks={[30, 45, 60, 75, 90, 100]}
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  unit="%"
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      return (
+                        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700">
+                          <div className="font-bold text-slate-200 border-b border-slate-700 pb-1 mb-1.5 flex items-center justify-between gap-4">
+                            <span>{label} ({data.date})</span>
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                data.healthScore >= 80
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                  : data.healthScore >= 60
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                  : 'bg-red-500/20 text-red-300 border border-red-400/30'
+                              }`}
+                            >
+                              {data.kondisi}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-slate-400">Health Score:</span>
+                              <span className="font-mono font-bold text-emerald-300 text-sm">
+                                {data.healthScore}%
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4 text-[11px]">
+                              <span className="text-slate-400">Hasil Inspeksi:</span>
+                              <span className="text-slate-200 font-medium">{data.status}</span>
+                            </div>
+                            {data.inspections > 0 && (
+                              <div className="text-[10px] text-blue-300 pt-1 border-t border-slate-800">
+                                ✓ {data.inspections} checklist inspeksi tercatat
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                {/* Ambang Batas Readiness Lines */}
+                <ReferenceLine
+                  y={80}
+                  stroke="#10b981"
+                  strokeDasharray="4 4"
+                  label={{
+                    value: 'Batas Siap (80%)',
+                    fill: '#10b981',
+                    fontSize: 10,
+                    position: 'insideTopRight',
+                  }}
+                />
+                <ReferenceLine
+                  y={60}
+                  stroke="#f59e0b"
+                  strokeDasharray="4 4"
+                  label={{
+                    value: 'Batas US Ringan (60%)',
+                    fill: '#f59e0b',
+                    fontSize: 10,
+                    position: 'insideTopRight',
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="healthScore"
+                  name="Health Score"
+                  stroke="#1d4ed8"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: '#1d4ed8', strokeWidth: 1, stroke: '#ffffff' }}
+                  activeDot={{ r: 6, fill: '#2563eb', stroke: '#ffffff', strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                <span>Kondisi S (≥80%)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
+                <span>Kondisi US Ringan (60-79%)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+                <span>Kondisi US (&lt;60%)</span>
+              </div>
+            </div>
+            <span className="text-slate-400">
+              * Perhitungan otomatis berdasarkan checklist 13 parameter teknis
+            </span>
           </div>
         </div>
       </div>

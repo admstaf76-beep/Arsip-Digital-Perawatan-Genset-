@@ -6,6 +6,7 @@ import {
   SOPChecklistRecord,
   AuditLogItem,
   UserSession,
+  GensetOperationalRecord,
 } from '../types/genset';
 import {
   INITIAL_GENSETS,
@@ -14,6 +15,7 @@ import {
   INITIAL_INCIDENTS,
   INITIAL_SOP_LOGS,
   INITIAL_AUDIT_LOGS,
+  INITIAL_OPERATIONAL_RECORDS,
 } from '../data/initialData';
 
 const KEYS = {
@@ -21,6 +23,7 @@ const KEYS = {
   INSPECTIONS: 'gmm_inspections_v2',
   MAINTENANCES: 'gmm_maintenances_v2',
   INCIDENTS: 'gmm_incidents_v2',
+  OPERATIONAL: 'gmm_operational_v2',
   SOP: 'gmm_sop_v2',
   AUDIT: 'gmm_audit_v2',
   USER: 'gmm_active_user_v2',
@@ -110,6 +113,31 @@ export const getStoredIncidents = (): IncidentRecord[] => {
 
 export const saveStoredIncidents = (items: IncidentRecord[]) => {
   localStorage.setItem(KEYS.INCIDENTS, JSON.stringify(items));
+};
+
+export const getStoredOperational = (): GensetOperationalRecord[] => {
+  try {
+    const raw = localStorage.getItem(KEYS.OPERATIONAL);
+    if (!raw) {
+      localStorage.setItem(KEYS.OPERATIONAL, JSON.stringify(INITIAL_OPERATIONAL_RECORDS));
+      return INITIAL_OPERATIONAL_RECORDS;
+    }
+    const parsed: GensetOperationalRecord[] = JSON.parse(raw);
+    const existingIds = new Set(parsed.map((p) => p.id));
+    const missing = INITIAL_OPERATIONAL_RECORDS.filter((o) => !existingIds.has(o.id));
+    if (missing.length > 0) {
+      const merged = [...parsed, ...missing];
+      localStorage.setItem(KEYS.OPERATIONAL, JSON.stringify(merged));
+      return merged;
+    }
+    return parsed;
+  } catch {
+    return INITIAL_OPERATIONAL_RECORDS;
+  }
+};
+
+export const saveStoredOperational = (items: GensetOperationalRecord[]) => {
+  localStorage.setItem(KEYS.OPERATIONAL, JSON.stringify(items));
 };
 
 export const getStoredSOP = (): SOPChecklistRecord[] => {

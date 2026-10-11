@@ -3,6 +3,7 @@ import {
   InspectionRecord,
   MaintenanceRecord,
   IncidentRecord,
+  GensetOperationalRecord,
 } from '../types/genset';
 
 const SPREADSHEET_ID_KEY = 'gmm_google_spreadsheet_id';
@@ -496,3 +497,66 @@ export const appendIncidentToSheet = async (
   );
   setLastSyncTime();
 };
+
+// Real-time: Append a single Operational record with 3-stage inspection data
+export const appendOperationalToSheet = async (
+  accessToken: string,
+  spreadsheetId: string,
+  record: GensetOperationalRecord
+) => {
+  const row = [
+    record.nomorLog,
+    record.tanggal,
+    record.waktuMulai,
+    record.waktuSelesai || (record.status === 'Beroperasi' ? 'Running' : '-'),
+    record.durasiOperasiMenit,
+    record.gensetId,
+    record.gensetName,
+    record.keperluan,
+    record.modeOperasi,
+    record.operator,
+    record.petugasPendamping || '-',
+    record.hourMeterAwal,
+    record.hourMeterAkhir,
+    record.status,
+    // Pra-Operasi
+    record.praOperasi.levelOli,
+    record.praOperasi.levelCoolant,
+    record.praOperasi.levelBBM,
+    record.praOperasi.teganganBaterai,
+    record.praOperasi.kondisiFisikRuangan,
+    record.praOperasi.statusKesiapan,
+    // Saat Operasi
+    record.saatOperasi.teganganL1L2,
+    record.saatOperasi.frekuensi,
+    record.saatOperasi.rpm,
+    record.saatOperasi.tekananOli,
+    record.saatOperasi.temperaturMesin,
+    record.saatOperasi.arusBeban,
+    record.saatOperasi.persenBeban,
+    record.saatOperasi.suaraDanGetaran,
+    record.saatOperasi.kondisiAsap,
+    // Pasca-Operasi
+    record.pascaOperasi.coolingDownDurasiMenit,
+    record.pascaOperasi.levelBBMAkhir,
+    record.pascaOperasi.estimasiKonsumsiSolarLiter,
+    record.pascaOperasi.cekKebocoran,
+    record.pascaOperasi.posisiSelectorAkhir,
+    record.pascaOperasi.kondisiAkhirGenset,
+    record.catatanKhusus || '-',
+  ];
+
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Log_Operasional!A:AJ:append?valueInputOption=USER_ENTERED`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values: [row] }),
+    }
+  );
+  setLastSyncTime();
+};
+

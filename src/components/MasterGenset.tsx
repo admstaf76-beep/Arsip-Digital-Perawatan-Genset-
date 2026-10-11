@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import { GensetItem, UserSession, ReadinessCondition } from '../types/genset';
+import {
+  GensetItem,
+  UserSession,
+  ReadinessCondition,
+  MaintenanceRecord,
+} from '../types/genset';
 import {
   Zap,
   Search,
@@ -14,10 +19,14 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
+  Printer,
+  FileCheck,
 } from 'lucide-react';
+import { PrintableGensetMaintenanceReportModal } from './PrintableGensetMaintenanceReportModal';
 
 interface MasterGensetProps {
   gensets: GensetItem[];
+  maintenances?: MaintenanceRecord[];
   activeUser: UserSession;
   onSaveGenset: (genset: GensetItem, isNew: boolean) => void;
   onDeleteGenset: (id: string) => void;
@@ -28,6 +37,7 @@ interface MasterGensetProps {
 
 export const MasterGenset: React.FC<MasterGensetProps> = ({
   gensets,
+  maintenances = [],
   activeUser,
   onSaveGenset,
   onDeleteGenset,
@@ -38,6 +48,9 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSatuan, setSelectedSatuan] = useState<string>('SEMUA');
   const [selectedKondisi, setSelectedKondisi] = useState<string>('SEMUA');
+
+  // Printable Maintenance Report Modal State (3 Bulan)
+  const [reportingGenset, setReportingGenset] = useState<GensetItem | null>(null);
 
   // Form Modal State
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -278,9 +291,21 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between pt-1">
-                  <span className="text-[11px] text-blue-600 font-semibold flex items-center gap-1">
-                    <Info className="w-3.5 h-3.5" /> Ketuk untuk detail & foto
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-blue-600 font-semibold flex items-center gap-1">
+                      <Info className="w-3.5 h-3.5" /> Detail
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReportingGenset(g);
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-300"
+                    >
+                      <Printer className="w-3 h-3 text-blue-700" />
+                      <span>Cetak 3 Bln</span>
+                    </button>
+                  </div>
                   {canEdit && (
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -420,6 +445,13 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
                         className="py-3 px-4 text-right space-x-1"
                         onClick={(e) => e.stopPropagation()}
                       >
+                        <button
+                          onClick={() => setReportingGenset(g)}
+                          title="Cetak Laporan Perawatan 3 Bulan"
+                          className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => setSelectedGensetDetail(g)}
                           title="Lihat Detail & Foto"
@@ -1024,6 +1056,15 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
           </div>
         </div>
       )}
+
+      {/* 3-Month Maintenance Activity Printable Report Modal */}
+      <PrintableGensetMaintenanceReportModal
+        isOpen={Boolean(reportingGenset)}
+        onClose={() => setReportingGenset(null)}
+        genset={reportingGenset}
+        maintenances={maintenances}
+        activeUser={activeUser}
+      />
     </div>
   );
 };
