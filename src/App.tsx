@@ -1,0 +1,530 @@
+import React, { useState, useEffect } from 'react';
+import {
+  GensetItem,
+  InspectionRecord,
+  MaintenanceRecord,
+  IncidentRecord,
+  SOPChecklistRecord,
+  AuditLogItem,
+  UserSession,
+  ReadinessCondition,
+} from './types/genset';
+import {
+  getStoredGensets,
+  saveStoredGensets,
+  getStoredInspections,
+  saveStoredInspections,
+  getStoredMaintenances,
+  saveStoredMaintenances,
+  getStoredIncidents,
+  saveStoredIncidents,
+  getStoredSOP,
+  saveStoredSOP,
+  getStoredAudit,
+  logAuditEvent,
+  getActiveUser,
+  setActiveUser,
+  exportFullDatabaseAsJSON,
+  exportGensetToCSV,
+} from './services/storage';
+
+import { Navbar } from './components/Navbar';
+import { Dashboard } from './components/Dashboard';
+import { MasterGenset } from './components/MasterGenset';
+import { PemeriksaanKondisi } from './components/PemeriksaanKondisi';
+import { PerawatanGenset } from './components/PerawatanGenset';
+import { KerusakanPerbaikan } from './components/KerusakanPerbaikan';
+import { SopK3 } from './components/SopK3';
+import { ApprovalSystem } from './components/ApprovalSystem';
+import { ExportLaporan } from './components/ExportLaporan';
+import { LoginModal } from './components/LoginModal';
+import { AuditLogModal } from './components/AuditLogModal';
+
+export default function App() {
+  // Primary Persistent State
+  const [gensets, setGensets] = useState<GensetItem[]>(getStoredGensets);
+  const [inspections, setInspections] = useState<InspectionRecord[]>(getStoredInspections);
+  const [maintenances, setMaintenances] = useState<MaintenanceRecord[]>(getStoredMaintenances);
+  const [incidents, setIncidents] = useState<IncidentRecord[]>(getStoredIncidents);
+  const [sopLogs, setSopLogs] = useState<SOPChecklistRecord[]>(getStoredSOP);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>(getStoredAudit);
+  const [activeUser, setUser] = useState<UserSession>(getActiveUser);
+
+  // Active View Tab
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
+
+  // Modals & UI States
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [selectedGensetDetail, setSelectedGensetDetail] = useState<GensetItem | null>(null);
+
+  // Sub-modal triggers for rapid input
+  const [isNewInspectionOpen, setIsNewInspectionOpen] = useState(false);
+  const [isNewMaintenanceOpen, setIsNewMaintenanceOpen] = useState(false);
+  const [isNewIncidentOpen, setIsNewIncidentOpen] = useState(false);
+
+  // Toast Notification
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3200);
+  };
+
+  // Sync state changes with persistence
+  useEffect(() => {
+    saveStoredGensets(gensets);
+  }, [gensets]);
+
+  useEffect(() => {
+    saveStoredInspections(inspections);
+  }, [inspections]);
+
+  useEffect(() => {
+    saveStoredMaintenances(maintenances);
+  }, [maintenances]);
+
+  useEffect(() => {
+    saveStoredIncidents(incidents);
+  }, [incidents]);
+
+  useEffect(() => {
+    saveStoredSOP(sopLogs);
+  }, [sopLogs]);
+
+  // Handler for Role Switching
+  const handleSelectUser = (newUser: UserSession) => {
+    setUser(newUser);
+    setActiveUser(newUser);
+    const updatedLogs = logAuditEvent(
+      newUser,
+      'Ganti Akun Pengguna',
+      `Login berhasil sebagai ${newUser.role} (${newUser.name})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Berhasil login sebagai ${newUser.role}: ${newUser.name}`);
+  };
+
+  // Handler for Genset Master Save / Update
+  const handleSaveGenset = (genset: GensetItem, isNew: boolean) => {
+    if (isNew) {
+      const updated = [genset, ...gensets];
+      setGensets(updated);
+      const updatedLogs = logAuditEvent(
+        activeUser,
+        'Tambah Master Genset',
+        `Menambahkan unit ${genset.nama} (${genset.kode}) di ${genset.lokasi}`
+      );
+      setAuditLogs(updatedLogs);
+      showToast(`Unit genset ${genset.nama} berhasil ditambahkan.`);
+    } else {
+      const updated = gensets.map((g) => (g.id === genset.id ? genset : g));
+      setGensets(updated);
+      const updatedLogs = logAuditEvent(
+        activeUser,
+        'Update Master Genset',
+        `Memperbarui spesifikasi ${genset.nama} (${genset.kode})`
+      );
+      setAuditLogs(updatedLogs);
+      showToast(`Data genset ${genset.nama} berhasil diperbarui.`);
+    }
+  };
+
+  // Handler for Genset Delete
+  const handleDeleteGenset = (id: string) => {
+    const target = gensets.find((g) => g.id === id);
+    if (!target) return;
+    if (window.confirm(`Yakin ingin menghapus data master ${target.nama}?`)) {
+      const updated = gensets.filter((g) => g.id !== id);
+      setGensets(updated);
+      const updatedLogs = logAuditEvent(
+        activeUser,
+        'Hapus Master Genset',
+        `Menghapus data unit ${target.nama} (${target.kode})`
+      );
+      setAuditLogs(updatedLogs);
+      showToast(`Unit ${target.nama} telah dihapus.`);
+    }
+  };
+
+  // Handler for Inspection Checklist Save
+  const handleSaveInspection = (record: InspectionRecord) => {
+    const updatedInspections = [record, ...inspections];
+    setInspections(updatedInspections);
+
+    // Automatically recalculate / adjust genset health score and condition
+    let newScore = 85;
+    if (record.status === 'Normal') newScore = 92;
+    if (record.status === 'Perhatian') newScore = 70;
+    if (record.status === 'Gangguan') newScore = 40;
+
+    const updatedGensets = gensets.map((g) => {
+      if (g.id === record.gensetId) {
+        return {
+          ...g,
+          lastInspected: record.tanggal,
+          healthScore: newScore,
+          kondisi: (record.status === 'Gangguan'
+            ? 'US'
+            : record.status === 'Perhatian'
+            ? 'US Ringan'
+            : 'S') as ReadinessCondition,
+        };
+      }
+      return g;
+    });
+    setGensets(updatedGensets);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Input Pemeriksaan 13 Parameter',
+      `Inspeksi ${record.gensetName} status: ${record.status} oleh ${record.teknisi}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Checklist pemeriksaan ${record.gensetName} berhasil disimpan.`);
+  };
+
+  // Handler for Maintenance Work Order Save
+  const handleSaveMaintenance = (record: MaintenanceRecord) => {
+    const updated = [record, ...maintenances];
+    setMaintenances(updated);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Submit SPK Perawatan (CMMS)',
+      `Mencatat perawatan ${record.komponen} pada ${record.gensetName} (${record.nomorPekerjaan})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`SPK ${record.nomorPekerjaan} berhasil disubmit ke antrean Kadislog.`);
+  };
+
+  // Handler for Kadislog Approval
+  const handleApproveMaintenance = (id: string, notes: string) => {
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let targetSPK = '';
+    const updated = maintenances.map((m) => {
+      if (m.id === id) {
+        targetSPK = m.nomorPekerjaan;
+        return {
+          ...m,
+          approvalStatus: 'Disetujui' as const,
+          catatanKadislog: notes || 'Pekerjaan telah diperiksa dan disetujui sesuai SOP.',
+          kadislogName: activeUser.name,
+          tanggalApproval: nowStr,
+        };
+      }
+      return m;
+    });
+    setMaintenances(updated);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Approval Disetujui (Kadislog)',
+      `Menyetujui pekerjaan SPK ${targetSPK}. Catatan: ${notes || 'Sesuai standar'}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Pekerjaan ${targetSPK} telah DISETUJUI oleh Kadislog.`);
+  };
+
+  // Handler for Kadislog Rejection
+  const handleRejectMaintenance = (id: string, notes: string) => {
+    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let targetSPK = '';
+    const updated = maintenances.map((m) => {
+      if (m.id === id) {
+        targetSPK = m.nomorPekerjaan;
+        return {
+          ...m,
+          approvalStatus: 'Ditolak' as const,
+          catatanKadislog: notes || 'Ditolak untuk revisi pekerjaan / klarifikasi teknis.',
+          kadislogName: activeUser.name,
+          tanggalApproval: nowStr,
+        };
+      }
+      return m;
+    });
+    setMaintenances(updated);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Approval Ditolak (Kadislog)',
+      `Menolak pekerjaan SPK ${targetSPK}. Alasan: ${notes || 'Perlu perbaikan'}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Pekerjaan ${targetSPK} DITOLAK. Teknisi perlu melakukan perbaikan.`);
+  };
+
+  // Handler for Incident / Fault Report Save
+  const handleSaveIncident = (incident: IncidentRecord) => {
+    const updated = [incident, ...incidents];
+    setIncidents(updated);
+
+    // Update genset condition to US if critical
+    const updatedGensets = gensets.map((g) => {
+      if (g.id === incident.gensetId) {
+        return {
+          ...g,
+          kondisi: 'US' as const,
+          healthScore: Math.min(g.healthScore, 50),
+        };
+      }
+      return g;
+    });
+    setGensets(updatedGensets);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Lapor Kerusakan Genset',
+      `Laporan ${incident.nomorLaporan} pada ${incident.gensetName}: ${incident.gejala}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Laporan kerusakan ${incident.nomorLaporan} berhasil dicatat.`);
+  };
+
+  // Handler for Incident Status Update
+  const handleUpdateIncidentStatus = (
+    id: string,
+    newStatus: 'Open' | 'Dalam Penanganan' | 'Selesai'
+  ) => {
+    let reportNo = '';
+    let targetGensetId = '';
+    const updated = incidents.map((inc) => {
+      if (inc.id === id) {
+        reportNo = inc.nomorLaporan;
+        targetGensetId = inc.gensetId;
+        return { ...inc, status: newStatus };
+      }
+      return inc;
+    });
+    setIncidents(updated);
+
+    if (newStatus === 'Selesai') {
+      const updatedGensets = gensets.map((g) => {
+        if (g.id === targetGensetId) {
+          return {
+            ...g,
+            kondisi: 'S' as const,
+            healthScore: 85,
+          };
+        }
+        return g;
+      });
+      setGensets(updatedGensets);
+    }
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Update Status Gangguan',
+      `Mengubah status laporan ${reportNo} menjadi: ${newStatus}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Status laporan ${reportNo} diubah menjadi ${newStatus}.`);
+  };
+
+  // Handler for SOP / K3 Checklist Save
+  const handleSaveSOP = (record: SOPChecklistRecord) => {
+    const updated = [record, ...sopLogs];
+    setSopLogs(updated);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Verifikasi SOP & K3',
+      `Checklist K3 untuk ${record.gensetName} status: ${record.status}`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Verifikasi keselamatan K3 untuk ${record.gensetName} berhasil disimpan.`);
+  };
+
+  // Export handlers
+  const handleExportCSV = () => {
+    exportGensetToCSV(gensets);
+    logAuditEvent(
+      activeUser,
+      'Ekspor Spreadsheet',
+      'Download data master genset dalam format CSV/Spreadsheet'
+    );
+    showToast('File spreadsheet CSV berhasil diunduh.');
+  };
+
+  const handleExportJSON = () => {
+    exportFullDatabaseAsJSON();
+    logAuditEvent(
+      activeUser,
+      'Backup Database',
+      'Download cadangan database sistem lengkap (JSON)'
+    );
+    showToast('Cadangan database JSON berhasil diunduh.');
+  };
+
+  // Counts for Badges
+  const pendingApprovalCount = maintenances.filter(
+    (m) => m.approvalStatus === 'Menunggu Review'
+  ).length;
+
+  const openIncidentsCount = incidents.filter((i) => i.status !== 'Selesai').length;
+
+  return (
+    <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-sans">
+      {/* Navbar with Role Badges & Responsive Nav */}
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        activeUser={activeUser}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onOpenAuditModal={() => setIsAuditModalOpen(true)}
+        pendingApprovalCount={pendingApprovalCount}
+        openIncidentsCount={openIncidentsCount}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-8">
+        {activeTab === 'dashboard' && (
+          <Dashboard
+            gensets={gensets}
+            inspections={inspections}
+            maintenances={maintenances}
+            incidents={incidents}
+            activeUser={activeUser}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onSelectGensetDetail={(g) => {
+              setSelectedGensetDetail(g);
+              setActiveTab('master');
+            }}
+            onOpenNewInspection={() => {
+              setActiveTab('pemeriksaan');
+              setIsNewInspectionOpen(true);
+            }}
+            onOpenNewMaintenance={() => {
+              setActiveTab('perawatan');
+              setIsNewMaintenanceOpen(true);
+            }}
+            onOpenNewIncident={() => {
+              setActiveTab('gangguan');
+              setIsNewIncidentOpen(true);
+            }}
+          />
+        )}
+
+        {activeTab === 'master' && (
+          <MasterGenset
+            gensets={gensets}
+            activeUser={activeUser}
+            onSaveGenset={handleSaveGenset}
+            onDeleteGenset={handleDeleteGenset}
+            onExportCSV={handleExportCSV}
+            selectedGensetDetail={selectedGensetDetail}
+            setSelectedGensetDetail={setSelectedGensetDetail}
+          />
+        )}
+
+        {activeTab === 'pemeriksaan' && (
+          <PemeriksaanKondisi
+            inspections={inspections}
+            gensets={gensets}
+            activeUser={activeUser}
+            onSaveInspection={handleSaveInspection}
+            isNewModalOpen={isNewInspectionOpen}
+            setIsNewModalOpen={setIsNewInspectionOpen}
+          />
+        )}
+
+        {activeTab === 'perawatan' && (
+          <PerawatanGenset
+            maintenances={maintenances}
+            gensets={gensets}
+            activeUser={activeUser}
+            onSaveMaintenance={handleSaveMaintenance}
+            onApproveMaintenance={handleApproveMaintenance}
+            onRejectMaintenance={handleRejectMaintenance}
+            isNewModalOpen={isNewMaintenanceOpen}
+            setIsNewModalOpen={setIsNewMaintenanceOpen}
+          />
+        )}
+
+        {activeTab === 'gangguan' && (
+          <KerusakanPerbaikan
+            incidents={incidents}
+            gensets={gensets}
+            activeUser={activeUser}
+            onSaveIncident={handleSaveIncident}
+            onUpdateStatus={handleUpdateIncidentStatus}
+            isNewModalOpen={isNewIncidentOpen}
+            setIsNewModalOpen={setIsNewIncidentOpen}
+          />
+        )}
+
+        {activeTab === 'sop' && (
+          <SopK3
+            sopLogs={sopLogs}
+            gensets={gensets}
+            activeUser={activeUser}
+            onSaveSOP={handleSaveSOP}
+          />
+        )}
+
+        {activeTab === 'approval' && (
+          <ApprovalSystem
+            maintenances={maintenances}
+            activeUser={activeUser}
+            onApprove={handleApproveMaintenance}
+            onReject={handleRejectMaintenance}
+            onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          />
+        )}
+
+        {activeTab === 'laporan' && (
+          <ExportLaporan
+            gensets={gensets}
+            inspections={inspections}
+            maintenances={maintenances}
+            incidents={incidents}
+            activeUser={activeUser}
+            onExportCSV={handleExportCSV}
+            onExportJSON={handleExportJSON}
+          />
+        )}
+      </main>
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2.5 border border-slate-700 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Role Switcher Login Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        activeUser={activeUser}
+        onSelectUser={handleSelectUser}
+      />
+
+      {/* History Audit Log Modal */}
+      <AuditLogModal
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+        logs={auditLogs}
+      />
+
+      {/* Footer (Anti-slop compliant) */}
+      <footer className="print:hidden border-t border-slate-200 bg-white py-4 mt-auto mb-16 lg:mb-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div>
+            <span>Genset Monitoring & Maintenance Management System (GMM)</span>
+            <span className="mx-2">·</span>
+            <span>Satuan Denma</span>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] text-slate-400">
+            <span>Standar Keselamatan K3 & Prosedur CMMS</span>
+            <span>·</span>
+            <span>Database Terintegrasi</span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
