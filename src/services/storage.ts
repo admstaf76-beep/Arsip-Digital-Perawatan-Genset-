@@ -51,7 +51,16 @@ export const getStoredInspections = (): InspectionRecord[] => {
       localStorage.setItem(KEYS.INSPECTIONS, JSON.stringify(INITIAL_INSPECTIONS));
       return INITIAL_INSPECTIONS;
     }
-    return JSON.parse(raw);
+    const parsed: InspectionRecord[] = JSON.parse(raw);
+    // Ensure all rich initial records exist by id
+    const existingIds = new Set(parsed.map((p) => p.id));
+    const missing = INITIAL_INSPECTIONS.filter((i) => !existingIds.has(i.id));
+    if (missing.length > 0) {
+      const merged = [...parsed, ...missing];
+      localStorage.setItem(KEYS.INSPECTIONS, JSON.stringify(merged));
+      return merged;
+    }
+    return parsed;
   } catch {
     return INITIAL_INSPECTIONS;
   }
@@ -68,7 +77,15 @@ export const getStoredMaintenances = (): MaintenanceRecord[] => {
       localStorage.setItem(KEYS.MAINTENANCES, JSON.stringify(INITIAL_MAINTENANCES));
       return INITIAL_MAINTENANCES;
     }
-    return JSON.parse(raw);
+    const parsed: MaintenanceRecord[] = JSON.parse(raw);
+    const existingIds = new Set(parsed.map((p) => p.id));
+    const missing = INITIAL_MAINTENANCES.filter((m) => !existingIds.has(m.id));
+    if (missing.length > 0) {
+      const merged = [...parsed, ...missing];
+      localStorage.setItem(KEYS.MAINTENANCES, JSON.stringify(merged));
+      return merged;
+    }
+    return parsed;
   } catch {
     return INITIAL_MAINTENANCES;
   }

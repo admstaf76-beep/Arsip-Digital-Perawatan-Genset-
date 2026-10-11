@@ -23,11 +23,18 @@ import {
   FileText,
   Printer,
   PieChart as PieChartIcon,
+  Filter,
 } from 'lucide-react';
 import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   Legend,
