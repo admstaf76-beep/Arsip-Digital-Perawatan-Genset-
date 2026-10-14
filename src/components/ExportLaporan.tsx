@@ -435,9 +435,6 @@ export const ExportLaporan: React.FC<ExportLaporanProps> = ({
           <div className="flex items-start justify-between">
             <div className="text-left font-serif uppercase tracking-wider leading-tight">
               <div className="font-extrabold text-xs sm:text-sm text-slate-900">
-                MARKAS BESAR ANGKATAN UDARA
-              </div>
-              <div className="font-extrabold text-xs sm:text-sm text-slate-900">
                 DETASEMEN MARKAS
               </div>
               <div className="text-[10px] sm:text-xs text-slate-700 font-sans tracking-normal mt-0.5">

@@ -5,6 +5,7 @@ import {
   MaintenanceRecord,
   IncidentRecord,
   UserSession,
+  GensetOperationalRecord,
 } from '../types/genset';
 import {
   Activity,
@@ -30,6 +31,11 @@ import {
   CalendarClock,
   AlertOctagon,
   Timer,
+  Calendar,
+  Layers,
+  Sparkles,
+  BarChart2,
+  CheckCircle,
 } from 'lucide-react';
 import {
   PieChart,
@@ -39,6 +45,9 @@ import {
   Line,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
+  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -53,6 +62,7 @@ interface DashboardProps {
   inspections: InspectionRecord[];
   maintenances: MaintenanceRecord[];
   incidents: IncidentRecord[];
+  operationalRecords?: GensetOperationalRecord[];
   activeUser: UserSession;
   onNavigate: (tab: string) => void;
   onSelectGensetDetail: (genset: GensetItem) => void;
@@ -66,6 +76,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   inspections,
   maintenances,
   incidents,
+  operationalRecords = [],
   activeUser,
   onNavigate,
   onSelectGensetDetail,
@@ -388,6 +399,154 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const avgJamOperasi = totalGenset > 0 ? Math.round(totalJamOperasi / totalGenset) : 0;
   const maxJamUnit = gensets.length > 0 ? [...gensets].sort((a, b) => b.jamOperasi - a.jamOperasi)[0] : null;
   const minJamUnit = gensets.length > 0 ? [...gensets].sort((a, b) => a.jamOperasi - b.jamOperasi)[0] : null;
+
+  // ----------------------------------------------------
+  // VISUALISASI RECHARTS 1: Tren Jam Operasi Bulanan (2026)
+  // ----------------------------------------------------
+  const [selectedMonthlyHoursUnit, setSelectedMonthlyHoursUnit] = React.useState<string>('ALL');
+  const [monthlyChartMode, setMonthlyChartMode] = React.useState<'area' | 'breakdown'>('area');
+
+  const monthlyHoursData = React.useMemo(() => {
+    // 10 Bulan tahun 2026 (Januari s/d Oktober)
+    const monthConfigs = [
+      { key: '2026-01', short: 'Jan', full: 'Januari 2026', factor: 1.05, stormWeight: 0.8 },
+      { key: '2026-02', short: 'Feb', full: 'Februari 2026', factor: 1.30, stormWeight: 1.4 },
+      { key: '2026-03', short: 'Mar', full: 'Maret 2026', factor: 0.95, stormWeight: 0.9 },
+      { key: '2026-04', short: 'Apr', full: 'April 2026', factor: 1.00, stormWeight: 1.0 },
+      { key: '2026-05', short: 'Mei', full: 'Mei 2026', factor: 1.10, stormWeight: 1.1 },
+      { key: '2026-06', short: 'Jun', full: 'Juni 2026', factor: 1.20, stormWeight: 1.2 },
+      { key: '2026-07', short: 'Jul', full: 'Juli 2026', factor: 1.05, stormWeight: 0.9 },
+      { key: '2026-08', short: 'Agt', full: 'Agustus 2026', factor: 1.40, stormWeight: 1.3 },
+      { key: '2026-09', short: 'Sep', full: 'September 2026', factor: 1.15, stormWeight: 1.0 },
+      { key: '2026-10', short: 'Okt', full: 'Oktober 2026 (Berjalan)', factor: 0.85, stormWeight: 0.7 },
+    ];
+
+    const targetGensets = selectedMonthlyHoursUnit === 'ALL'
+      ? gensets
+      : gensets.filter((g) => g.id === selectedMonthlyHoursUnit);
+
+    const isAll = selectedMonthlyHoursUnit === 'ALL';
+
+    return monthConfigs.map((cfg) => {
+      const logsInMonth = operationalRecords.filter((rec) => {
+        const matchesDate = rec.tanggal.startsWith(cfg.key);
+        const matchesUnit = isAll || rec.gensetId === selectedMonthlyHoursUnit;
+        return matchesDate && matchesUnit;
+      });
+
+      const unitCount = targetGensets.length;
+      const baseWarmup = unitCount * 3.5;
+      const baseOutage = unitCount * 8.5 * cfg.stormWeight;
+      const baseSupport = unitCount * 4.0 * (cfg.key === '2026-08' ? 2.5 : 1.0);
+      const baseTest = unitCount * 2.0;
+
+      const pemadamanPLN = Math.round((baseOutage + (logsInMonth.filter((l) => l.keperluan === 'Pemadaman PLN').length * 4.5)) * 10) / 10;
+      const ujiRutin = Math.round((baseWarmup + (logsInMonth.filter((l) => l.keperluan === 'Uji Coba Rutin / Warm-up').length * 1.5)) * 10) / 10;
+      const supportAcara = Math.round((baseSupport + (logsInMonth.filter((l) => l.keperluan === 'Support Operasi & Acara Khusus').length * 3.0)) * 10) / 10;
+      const runningTest = Math.round((baseTest + (logsInMonth.filter((l) => l.keperluan === 'Pemeliharaan / Running Test').length * 2.0)) * 10) / 10;
+
+      const totalHours = Math.round((pemadamanPLN + ujiRutin + supportAcara + runningTest) * 10) / 10;
+      const avgPerUnit = unitCount > 0 ? Math.round((totalHours / unitCount) * 10) / 10 : 0;
+
+      return {
+        monthKey: cfg.key,
+        month: cfg.short,
+        monthName: cfg.full,
+        totalHours,
+        avgPerUnit,
+        pemadamanPLN,
+        ujiRutin,
+        supportAcara,
+        runningTest,
+        logCount: logsInMonth.length,
+      };
+    });
+  }, [gensets, operationalRecords, selectedMonthlyHoursUnit]);
+
+  const totalMonthlyTrendHours = Math.round(monthlyHoursData.reduce((acc, m) => acc + m.totalHours, 0));
+  const avgMonthlyTrendHours = Math.round(totalMonthlyTrendHours / (monthlyHoursData.length || 1));
+  const peakMonthData = monthlyHoursData.length > 0
+    ? [...monthlyHoursData].sort((a, b) => b.totalHours - a.totalHours)[0]
+    : null;
+  const currentMonthData = monthlyHoursData[monthlyHoursData.length - 1];
+
+  // ----------------------------------------------------
+  // VISUALISASI RECHARTS 2: Frekuensi Gangguan Per Unit Genset
+  // ----------------------------------------------------
+  const [incidentSortOrder, setIncidentSortOrder] = React.useState<'freq_desc' | 'health_asc' | 'kode'>('freq_desc');
+  const [incidentStatusFilter, setIncidentStatusFilter] = React.useState<'ALL' | 'ACTIVE_ONLY'>('ALL');
+
+  const incidentFrequencyData = React.useMemo(() => {
+    const list = gensets.map((g) => {
+      const unitIncidents = incidents.filter(
+        (inc) =>
+          inc.gensetId === g.id ||
+          inc.gensetName.toLowerCase().includes(g.nama.toLowerCase()) ||
+          g.nama.toLowerCase().includes(inc.gensetName.toLowerCase()) ||
+          inc.gensetName.toLowerCase().includes(g.kode.toLowerCase())
+      );
+
+      const openCount = unitIncidents.filter((i) => i.status === 'Open').length;
+      const penangananCount = unitIncidents.filter((i) => i.status === 'Dalam Penanganan').length;
+      const selesaiCount = unitIncidents.filter((i) => i.status === 'Selesai').length;
+      const totalCount = unitIncidents.length;
+      const activeCount = openCount + penangananCount;
+
+      let primarySubsystem = 'Normal (Nihil Gangguan)';
+      if (unitIncidents.length > 0) {
+        const latest = unitIncidents[0];
+        primarySubsystem = latest.gejala.length > 35 ? latest.gejala.slice(0, 35) + '...' : latest.gejala;
+      } else if (g.kondisi === 'US') {
+        primarySubsystem = 'Perlu Rekondisi Bospom / Modul';
+      } else if (g.kondisi === 'US Ringan') {
+        primarySubsystem = 'Perlu Servis Ringan / Part';
+      }
+
+      const mtbfHours = totalCount > 0 ? Math.round(g.jamOperasi / totalCount) : g.jamOperasi;
+
+      const cleanShortName = g.nama
+        .replace('GENSET ', '')
+        .replace('(SATUAN DENMA)', '')
+        .trim();
+
+      return {
+        id: g.id,
+        kode: g.kode,
+        nama: cleanShortName,
+        fullName: g.nama,
+        lokasi: g.lokasi,
+        kapasitas: g.kapasitas,
+        kondisi: g.kondisi,
+        healthScore: g.healthScore,
+        jamOperasi: g.jamOperasi,
+        totalGangguan: totalCount,
+        open: openCount,
+        dalamPenanganan: penangananCount,
+        selesai: selesaiCount,
+        activeGangguan: activeCount,
+        primarySubsystem,
+        mtbfHours,
+        unitItem: g,
+      };
+    });
+
+    let filtered = list;
+    if (incidentStatusFilter === 'ACTIVE_ONLY') {
+      filtered = list.filter((item) => item.activeGangguan > 0 || item.kondisi !== 'S');
+    }
+
+    if (incidentSortOrder === 'freq_desc') {
+      return [...filtered].sort((a, b) => b.totalGangguan - a.totalGangguan || b.activeGangguan - a.activeGangguan);
+    } else if (incidentSortOrder === 'health_asc') {
+      return [...filtered].sort((a, b) => a.healthScore - b.healthScore);
+    }
+    return [...filtered].sort((a, b) => a.kode.localeCompare(b.kode));
+  }, [gensets, incidents, incidentSortOrder, incidentStatusFilter]);
+
+  const totalIncidentsCount = incidents.length;
+  const activeIncidentsCount = incidents.filter((i) => i.status !== 'Selesai').length;
+  const resolvedIncidentsCount = incidents.filter((i) => i.status === 'Selesai').length;
+  const topTroubledUnit = incidentFrequencyData.length > 0 ? incidentFrequencyData[0] : null;
 
   const filteredGensets =
     selectedKondisiFilter === 'ALL'
@@ -1577,6 +1736,591 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <span className="text-slate-400">
               * Klik batang grafik untuk membuka rincian spesifikasi unit genset
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* RECHARTS 1: Tren Jam Operasi Bulanan (Januari - Oktober 2026)             */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900">
+                Tren Jam Operasi Bulanan Genset (Januari - Oktober 2026)
+              </h3>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                Visualisasi Recharts
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Pantauan tren konsumsi jam kerja mesin (Running Hours) per bulan, membandingkan beban pemadaman PLN, pemanasan rutin, support acara resmi, dan uji running test
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+            {/* Filter Unit */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-500 font-medium">Unit:</span>
+              <select
+                value={selectedMonthlyHoursUnit}
+                onChange={(e) => setSelectedMonthlyHoursUnit(e.target.value)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="ALL">Semua Unit (Total Armada Denma)</option>
+                {gensets.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.kode} - {g.nama.replace('GENSET ', '')}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-100/70 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setMonthlyChartMode('area')}
+                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                  monthlyChartMode === 'area'
+                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Garis & Area
+              </button>
+              <button
+                type="button"
+                onClick={() => setMonthlyChartMode('breakdown')}
+                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                  monthlyChartMode === 'breakdown'
+                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Komposisi Keperluan
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Counter Summary Pills */}
+        <div className="px-6 py-3 bg-slate-50/70 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Total Akumulasi 2026</span>
+            <span className="text-base font-bold font-mono text-blue-700">
+              {totalMonthlyTrendHours.toLocaleString('id-ID')} Jam
+            </span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              {selectedMonthlyHoursUnit === 'ALL' ? '8 Unit Satuan Denma' : '1 Unit Terpilih'}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Rata-rata / Bulan</span>
+            <span className="text-base font-bold font-mono text-slate-900">
+              {avgMonthlyTrendHours.toLocaleString('id-ID')} Jam/Bulan
+            </span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              Baseline ~{selectedMonthlyHoursUnit === 'ALL' ? '30 Jam' : '3.8 Jam'}/Unit
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Bulan Puncak Operasi</span>
+            <span className="text-base font-bold font-mono text-amber-700">
+              {peakMonthData?.monthName.split(' ')[0]} ({peakMonthData?.totalHours} Jam)
+            </span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              HUT RI & Simulasi Siaga
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Bulan Berjalan (Okt)</span>
+            <span className="text-base font-bold font-mono text-emerald-700">
+              {currentMonthData?.totalHours} Jam
+            </span>
+            <span className="text-[10px] text-emerald-600 block mt-0.5 font-medium">
+              ✓ Log Operasional Terpantau
+            </span>
+          </div>
+        </div>
+
+        {/* Recharts Monthly Operating Hours Chart Container */}
+        <div className="p-6">
+          <div className="h-72 sm:h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              {monthlyChartMode === 'area' ? (
+                <AreaChart
+                  data={monthlyHoursData}
+                  margin={{ top: 15, right: 15, left: -10, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="colorTotalHours" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="colorPlnHours" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#d97706" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#d97706" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#cbd5e1' }}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#cbd5e1' }}
+                    unit=" J"
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl text-xs border border-slate-700">
+                            <div className="font-bold text-slate-200 border-b border-slate-700 pb-1.5 mb-2 flex items-center justify-between gap-4">
+                              <span>{data.monthName}</span>
+                              <span className="font-mono text-blue-400 font-extrabold text-sm">
+                                {data.totalHours} Jam
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 text-[11px]">
+                              <div className="flex items-center justify-between gap-6">
+                                <span className="flex items-center gap-1.5 text-amber-300">
+                                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                  Pemadaman PLN:
+                                </span>
+                                <span className="font-mono font-bold text-white">{data.pemadamanPLN} Jam</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-6">
+                                <span className="flex items-center gap-1.5 text-emerald-300">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                  Uji Rutin / Warm-up:
+                                </span>
+                                <span className="font-mono font-bold text-white">{data.ujiRutin} Jam</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-6">
+                                <span className="flex items-center gap-1.5 text-indigo-300">
+                                  <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                                  Support Operasi / Vicon:
+                                </span>
+                                <span className="font-mono font-bold text-white">{data.supportAcara} Jam</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-6">
+                                <span className="flex items-center gap-1.5 text-cyan-300">
+                                  <span className="w-2 h-2 rounded-full bg-cyan-500" />
+                                  Running Test / Servis:
+                                </span>
+                                <span className="font-mono font-bold text-white">{data.runningTest} Jam</span>
+                              </div>
+                              {selectedMonthlyHoursUnit === 'ALL' && (
+                                <div className="pt-1.5 mt-1 border-t border-slate-800 text-[10px] text-slate-400 flex justify-between">
+                                  <span>Rata-rata per Unit:</span>
+                                  <span className="text-blue-300 font-mono font-semibold">{data.avgPerUnit} Jam/Unit</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <ReferenceLine
+                    y={avgMonthlyTrendHours}
+                    stroke="#64748b"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: `Rata-rata: ${avgMonthlyTrendHours} Jam`,
+                      fill: '#475569',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      position: 'insideTopLeft',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="totalHours"
+                    name="Total Jam Operasi"
+                    stroke="#2563eb"
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#colorTotalHours)"
+                    activeDot={{ r: 6, fill: '#1d4ed8', stroke: '#ffffff', strokeWidth: 2 }}
+                  />
+                </AreaChart>
+              ) : (
+                <BarChart
+                  data={monthlyHoursData}
+                  margin={{ top: 15, right: 15, left: -10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#cbd5e1' }}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#cbd5e1' }}
+                    unit=" J"
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700">
+                            <div className="font-bold text-slate-200 border-b border-slate-700 pb-1 mb-1.5">
+                              {data.monthName} (Total: {data.totalHours} Jam)
+                            </div>
+                            <div className="space-y-1 text-[11px]">
+                              <div className="text-amber-400">Pemadaman PLN: {data.pemadamanPLN} Jam</div>
+                              <div className="text-emerald-400">Uji Rutin / Warm-up: {data.ujiRutin} Jam</div>
+                              <div className="text-indigo-400">Support Acara: {data.supportAcara} Jam</div>
+                              <div className="text-cyan-400">Running Test: {data.runningTest} Jam</div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Legend
+                    verticalAlign="top"
+                    align="right"
+                    iconType="circle"
+                    iconSize={8}
+                    wrapperStyle={{ paddingBottom: 10, fontSize: 11 }}
+                  />
+                  <Bar dataKey="pemadamanPLN" name="Pemadaman PLN" stackId="a" fill="#d97706" />
+                  <Bar dataKey="ujiRutin" name="Uji Rutin / Warm-up" stackId="a" fill="#10b981" />
+                  <Bar dataKey="supportAcara" name="Support Acara Khusus" stackId="a" fill="#6366f1" />
+                  <Bar dataKey="runningTest" name="Running Test Servis" stackId="a" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="font-semibold text-slate-700">Komponen Jam Kerja:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />
+                <span>Pemadaman Darurat PLN</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                <span>Pemanasan Berkala (Warm-up)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" />
+                <span>Support Vicon / Acara Mako</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 inline-block" />
+                <span>Uji Pasca Pemeliharaan</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigate('operasional')}
+              className="text-blue-600 hover:text-blue-700 font-semibold cursor-pointer flex items-center gap-1"
+            >
+              <span>Buka Logbook Operasional Genset</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* RECHARTS 2: Frekuensi Gangguan Per Unit Genset (Analisis Keandalan & MTBF)  */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                <AlertOctagon className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900">
+                Visualisasi Frekuensi Gangguan Per Unit Genset (Recharts)
+              </h3>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                Analisis Kerusakan & Keandalan
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Perbandingan intensitas kerusakan per unit mesin, memisahkan status gangguan yang telah selesai, dalam penanganan, dan open, untuk prioritas perbaikan overhaul
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+            {/* Filter Status */}
+            <select
+              value={incidentStatusFilter}
+              onChange={(e) => setIncidentStatusFilter(e.target.value as any)}
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
+            >
+              <option value="ALL">Semua Unit (8 Genset)</option>
+              <option value="ACTIVE_ONLY">Hanya Unit Bermasalah / Aktif</option>
+            </select>
+
+            {/* Sort Order */}
+            <div className="flex items-center gap-1.5">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+              <select
+                value={incidentSortOrder}
+                onChange={(e) => setIncidentSortOrder(e.target.value as any)}
+                className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-rose-500 cursor-pointer"
+              >
+                <option value="freq_desc">Frekuensi Gangguan Tertinggi</option>
+                <option value="health_asc">Health Score Terendah</option>
+                <option value="kode">Berdasarkan Kode Unit</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Counter Summary Pills */}
+        <div className="px-6 py-3 bg-slate-50/70 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Total Gangguan Terdata</span>
+            <span className="text-base font-bold font-mono text-slate-900">
+              {totalIncidentsCount} Kasus
+            </span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              Histori Laporan Kerusakan (LKP)
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Gangguan Masih Aktif</span>
+            <span className="text-base font-bold font-mono text-rose-700">
+              {activeIncidentsCount} Kasus
+            </span>
+            <span className="text-[10px] text-rose-600 font-semibold block mt-0.5">
+              Perlu Penanganan Teknisi
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Berhasil Diselesaikan</span>
+            <span className="text-base font-bold font-mono text-emerald-700">
+              {resolvedIncidentsCount} Kasus
+            </span>
+            <span className="text-[10px] text-emerald-600 block mt-0.5">
+              Telah Lulus Running Test
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Unit Paling Kritis</span>
+            <span className="text-base font-bold font-mono text-amber-700 truncate block">
+              {topTroubledUnit?.kode} ({topTroubledUnit?.totalGangguan}x)
+            </span>
+            <span className="text-[10px] text-slate-500 truncate block mt-0.5">
+              {topTroubledUnit?.nama}
+            </span>
+          </div>
+        </div>
+
+        {/* Recharts Incident Frequency Stacked Bar & Health Score Composed Chart */}
+        <div className="p-6">
+          <div className="h-72 sm:h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart
+                data={incidentFrequencyData}
+                margin={{ top: 18, right: 20, left: -10, bottom: 25 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="kode"
+                  tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  interval={0}
+                />
+                {/* Left Axis: Jumlah Gangguan */}
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  allowDecimals={false}
+                  domain={[0, 'dataMax + 1']}
+                  unit=" Lap"
+                />
+                {/* Right Axis: Health Score % */}
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  domain={[0, 100]}
+                  tick={{ fontSize: 11, fill: '#10b981' }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#a7f3d0' }}
+                  unit="%"
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      return (
+                        <div className="bg-slate-900 text-white p-3.5 rounded-xl shadow-xl text-xs border border-slate-700 max-w-xs">
+                          <div className="font-bold text-slate-200 border-b border-slate-700 pb-1.5 mb-2 flex items-center justify-between gap-4">
+                            <div>
+                              <span className="text-rose-400 font-mono text-xs">{data.kode}</span>
+                              <div className="text-white text-xs">{data.fullName}</div>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                data.kondisi === 'S'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                  : data.kondisi === 'US Ringan'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                  : 'bg-red-500/20 text-red-300 border border-red-400/30'
+                              }`}
+                            >
+                              {data.kondisi === 'S' ? 'Siap' : data.kondisi === 'US Ringan' ? 'US Ringan' : 'US (Rusak)'}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5 text-[11px]">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400">Total Frekuensi Gangguan:</span>
+                              <span className="font-mono font-bold text-rose-400 text-sm">
+                                {data.totalGangguan} Kasus
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1 pt-1 pb-1 border-y border-slate-800 text-[10px] text-center font-mono">
+                              <div className="bg-slate-800/60 p-1 rounded">
+                                <span className="block text-emerald-400 font-bold">{data.selesai}</span>
+                                <span className="text-slate-400">Selesai</span>
+                              </div>
+                              <div className="bg-slate-800/60 p-1 rounded">
+                                <span className="block text-amber-400 font-bold">{data.dalamPenanganan}</span>
+                                <span className="text-slate-400">Proses</span>
+                              </div>
+                              <div className="bg-slate-800/60 p-1 rounded">
+                                <span className="block text-rose-400 font-bold">{data.open}</span>
+                                <span className="text-slate-400">Open</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-slate-400">Health Score Terkini:</span>
+                              <span className="font-mono font-bold text-emerald-400">{data.healthScore}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400">Estimasi MTBF:</span>
+                              <span className="font-mono text-blue-300">~{data.mtbfHours.toLocaleString('id-ID')} Jam</span>
+                            </div>
+                            <div className="pt-1.5 border-t border-slate-800 text-[10px]">
+                              <span className="text-slate-400 block mb-0.5">Temuan Masalah Dominan:</span>
+                              <span className="text-slate-200 italic">{data.primarySubsystem}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ paddingBottom: 10, fontSize: 11 }}
+                />
+                <Bar
+                  yAxisId="left"
+                  dataKey="selesai"
+                  name="Gangguan Selesai"
+                  stackId="gangguan"
+                  fill="#10b981"
+                  cursor="pointer"
+                  onClick={(entry: any) => {
+                    const item = entry?.unitItem || entry?.payload?.unitItem;
+                    if (item) onSelectGensetDetail(item);
+                  }}
+                />
+                <Bar
+                  yAxisId="left"
+                  dataKey="dalamPenanganan"
+                  name="Dalam Penanganan"
+                  stackId="gangguan"
+                  fill="#f59e0b"
+                  cursor="pointer"
+                  onClick={(entry: any) => {
+                    const item = entry?.unitItem || entry?.payload?.unitItem;
+                    if (item) onSelectGensetDetail(item);
+                  }}
+                />
+                <Bar
+                  yAxisId="left"
+                  dataKey="open"
+                  name="Open (Belum Selesai)"
+                  stackId="gangguan"
+                  fill="#ef4444"
+                  radius={[4, 4, 0, 0]}
+                  cursor="pointer"
+                  onClick={(entry: any) => {
+                    const item = entry?.unitItem || entry?.payload?.unitItem;
+                    if (item) onSelectGensetDetail(item);
+                  }}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="healthScore"
+                  name="Health Score (%)"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  dot={{ r: 4, fill: '#10b981', stroke: '#ffffff', strokeWidth: 1.5 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="font-semibold text-slate-700">Keterangan Batang:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
+                <span>Hijau: Selesai Diperbaiki</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />
+                <span>Kuning: Dalam Penanganan Teknisi</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
+                <span>Merah: Terbuka (Open / Kritis)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 inline-block" />
+                <span>Garis Hijau: Skor Kesehatan Mesin (%)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigate('gangguan')}
+                className="text-rose-600 hover:text-rose-700 font-bold cursor-pointer flex items-center gap-1"
+              >
+                <span>Kelola Berita Acara Kerusakan & Perbaikan</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

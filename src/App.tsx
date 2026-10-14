@@ -593,6 +593,7 @@ export default function App() {
             inspections={inspections}
             maintenances={maintenances}
             incidents={incidents}
+            operationalRecords={operationalRecords}
             activeUser={activeUser}
             onNavigate={(tab) => setActiveTab(tab)}
             onSelectGensetDetail={(g) => {

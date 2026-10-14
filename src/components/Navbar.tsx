@@ -110,10 +110,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-base tracking-tight text-slate-900 whitespace-nowrap">
-                  GMM · GENSET MANAGEMENT
+                  Fasint Denma Koopsudnas
                 </span>
-                <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-600 rounded">
-                  SATUAN DENMA
+                <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded font-mono">
+                  GMM GENSET
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden md:block">
