@@ -463,18 +463,44 @@ export default function App() {
     showToast(`Status laporan ${reportNo} diubah menjadi ${newStatus}.`);
   };
 
-  // Handler for SOP / K3 Checklist Save
-  const handleSaveSOP = (record: SOPChecklistRecord) => {
-    const updated = [record, ...sopLogs];
+  // Handler for SOP / K3 Checklist Save / Edit
+  const handleSaveSOP = (record: SOPChecklistRecord, isNew: boolean = true) => {
+    let updated: SOPChecklistRecord[];
+    if (isNew) {
+      updated = [record, ...sopLogs];
+    } else {
+      updated = sopLogs.map((log) => (log.id === record.id ? record : log));
+    }
     setSopLogs(updated);
+    saveStoredSOP(updated);
 
     const updatedLogs = logAuditEvent(
       activeUser,
-      'Verifikasi SOP & K3',
-      `Checklist K3 untuk ${record.gensetName} status: ${record.status}`
+      isNew ? 'Verifikasi SOP & K3' : 'Edit Verifikasi SOP & K3',
+      `${isNew ? 'Checklist K3 baru' : 'Update checklist K3'} untuk ${record.gensetName} (${record.id}) status: ${record.status}`
     );
     setAuditLogs(updatedLogs);
-    showToast(`Verifikasi keselamatan K3 untuk ${record.gensetName} berhasil disimpan.`);
+    showToast(
+      isNew
+        ? `Verifikasi keselamatan K3 untuk ${record.gensetName} berhasil disimpan.`
+        : `Data verifikasi ${record.id} (${record.gensetName}) berhasil diperbarui.`
+    );
+  };
+
+  // Handler for Deleting SOP / K3 Checklist Record
+  const handleDeleteSOP = (id: string) => {
+    const target = sopLogs.find((s) => s.id === id);
+    const updated = sopLogs.filter((s) => s.id !== id);
+    setSopLogs(updated);
+    saveStoredSOP(updated);
+
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Hapus Verifikasi SOP & K3',
+      `Menghapus catatan verifikasi SOP ID: ${id} (${target?.gensetName || ''})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast('Data verifikasi SOP & K3 berhasil dihapus.');
   };
 
   // Handler for Operational Logbook & 3-stage Inspection Save
@@ -683,6 +709,7 @@ export default function App() {
             gensets={gensets}
             activeUser={activeUser}
             onSaveSOP={handleSaveSOP}
+            onDeleteSOP={handleDeleteSOP}
           />
         )}
 
