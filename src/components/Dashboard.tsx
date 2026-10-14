@@ -24,6 +24,12 @@ import {
   Printer,
   PieChart as PieChartIcon,
   Filter,
+  BarChart3,
+  SlidersHorizontal,
+  Bell,
+  CalendarClock,
+  AlertOctagon,
+  Timer,
 } from 'lucide-react';
 import {
   PieChart,
@@ -31,6 +37,8 @@ import {
   Cell,
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -94,6 +102,119 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Filter state for Health Score Trend (All Gensets or specific genset)
   const [selectedTrendGenset, setSelectedTrendGenset] = React.useState<string>('ALL');
+
+  // Filter state for Preventive Maintenance (PM) Reminders & Highlights
+  const [pmFilter, setPmFilter] = React.useState<'ACTION_NEEDED' | 'ALL' | 'OVERDUE' | 'UPCOMING'>('ACTION_NEEDED');
+
+  // Preventive Maintenance (PM) Calculation: based on Operating Hours (250h cycle) & Date intervals (30 days)
+  const pmScheduleData = React.useMemo(() => {
+    const today = new Date();
+
+    return gensets.map((g) => {
+      // Find latest completed/approved maintenance
+      const unitMaints = maintenances
+        .filter((m) => m.gensetId === g.id)
+        .sort((a, b) => new Date(b.tanggal).getTime() - new Date(a.tanggal).getTime());
+      const lastMaint = unitMaints[0];
+
+      // Operating Hours Interval: Every 250 Hours cycle (PM1 = 250, PM2 = 500, Top Overhaul = 2500, Major = 4000)
+      const cycleHours = 250;
+      const hoursInCycle = g.jamOperasi % cycleHours;
+      const remainingHours = cycleHours - hoursInCycle;
+      const nextTargetHours = (Math.floor(g.jamOperasi / cycleHours) + 1) * cycleHours;
+      const hoursProgress = Math.min(100, Math.round((hoursInCycle / cycleHours) * 100));
+
+      // Determine PM Type description based on target hours
+      let pmType = 'PM Rutin (250 Jam - Ganti Oli & Filter)';
+      let pmActionPlan = 'Ganti oli mesin (SAE 15W-40), filter oli pelumas, filter solar primer, bersihkan separator air';
+      if (nextTargetHours % 4000 === 0) {
+        pmType = 'Major Overhaul (4.000 Jam)';
+        pmActionPlan = 'Overhaul total engine, kalibrasi governor & injektor, uji beban penuh 100%, flushing total';
+      } else if (nextTargetHours % 2500 === 0) {
+        pmType = 'Top Overhaul (2.500 Jam)';
+        pmActionPlan = 'Pemeriksaan cylinder head, stel celah katup (valve clearance), descaling radiator, nozzle injector test';
+      } else if (nextTargetHours % 500 === 0) {
+        pmType = 'PM Menengah (500 Jam - Filter & Radiator)';
+        pmActionPlan = 'Ganti filter bahan bakar sekunder, bersihkan filter udara, cek v-belt alternator & coolant radiator';
+      }
+
+      // Date Interval: Monthly service cycle (every 30 days)
+      const lastDateStr = lastMaint ? lastMaint.tanggal : (g.lastInspected || '2026-09-15');
+      const lastDate = new Date(lastDateStr);
+      const diffTime = Math.max(0, today.getTime() - lastDate.getTime());
+      const daysSinceLastMaint = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      const daysRemainingMonthly = Math.max(0, 30 - daysSinceLastMaint);
+
+      // Determine Urgency Status
+      // Overdue: remaining hours <= 5 OR days >= 30 OR kondisi US
+      // Upcoming: remaining hours <= 30 OR days >= 22 (<= 8 days remaining) OR kondisi US Ringan
+      let urgency: 'OVERDUE' | 'UPCOMING' | 'NORMAL' = 'NORMAL';
+      let urgencyLabel = 'Jadwal Normal';
+      let primaryReason = '';
+
+      if (g.kondisi === 'US') {
+        urgency = 'OVERDUE';
+        urgencyLabel = 'Unit Rusak (US) - Servis Kritis';
+        primaryReason = 'Kerusakan komponen esensial, perlu perbaikan segera';
+      } else if (remainingHours <= 5 || daysSinceLastMaint >= 30) {
+        urgency = 'OVERDUE';
+        urgencyLabel = 'Jatuh Tempo Perawatan';
+        if (remainingHours <= 5 && daysSinceLastMaint >= 30) {
+          primaryReason = `Sisa ${remainingHours} jam kerja & sudah ${daysSinceLastMaint} hari belum servis`;
+        } else if (remainingHours <= 5) {
+          primaryReason = `Mencapai batas siklus (${remainingHours} jam tersisa menuju ${nextTargetHours} HM)`;
+        } else {
+          primaryReason = `Sudah ${daysSinceLastMaint} hari sejak servis terakhir (${lastDateStr})`;
+        }
+      } else if (remainingHours <= 30 || daysSinceLastMaint >= 22 || g.kondisi === 'US Ringan') {
+        urgency = 'UPCOMING';
+        urgencyLabel = 'Mendekati Jadwal PM';
+        if (remainingHours <= 30) {
+          primaryReason = `Sisa ${remainingHours} jam operasi menuju target ${nextTargetHours} HM`;
+        } else {
+          primaryReason = `Sisa ${daysRemainingMonthly} hari menuju siklus pemeliharaan berkala bulanan`;
+        }
+      } else {
+        urgency = 'NORMAL';
+        urgencyLabel = 'Jadwal Normal';
+        primaryReason = `Sisa ${remainingHours} jam kerja / ${daysRemainingMonthly} hari`;
+      }
+
+      return {
+        genset: g,
+        nextTargetHours,
+        hoursInCycle,
+        remainingHours,
+        hoursProgress,
+        lastMaintDate: lastDateStr,
+        daysSinceLastMaint,
+        daysRemainingMonthly,
+        lastMaintSPK: lastMaint?.nomorPekerjaan || '-',
+        pmType,
+        pmActionPlan,
+        urgency,
+        urgencyLabel,
+        primaryReason,
+      };
+    }).sort((a, b) => {
+      const rank = { OVERDUE: 0, UPCOMING: 1, NORMAL: 2 };
+      if (rank[a.urgency] !== rank[b.urgency]) {
+        return rank[a.urgency] - rank[b.urgency];
+      }
+      return a.remainingHours - b.remainingHours;
+    });
+  }, [gensets, maintenances]);
+
+  const overduePMCount = pmScheduleData.filter((p) => p.urgency === 'OVERDUE').length;
+  const upcomingPMCount = pmScheduleData.filter((p) => p.urgency === 'UPCOMING').length;
+  const actionNeededCount = overduePMCount + upcomingPMCount;
+
+  const filteredPMSchedules = pmScheduleData.filter((item) => {
+    if (pmFilter === 'ACTION_NEEDED') return item.urgency === 'OVERDUE' || item.urgency === 'UPCOMING';
+    if (pmFilter === 'OVERDUE') return item.urgency === 'OVERDUE';
+    if (pmFilter === 'UPCOMING') return item.urgency === 'UPCOMING';
+    return true;
+  });
 
   // Calculate 30-day Health Score trend from inspections
   const healthTrendData = React.useMemo(() => {
@@ -219,6 +340,54 @@ export const Dashboard: React.FC<DashboardProps> = ({
       items: gensets.filter((g) => g.kondisi === 'US'),
     },
   ];
+
+  // Running Hours (Jam Operasi) state & data for Recharts
+  const [hoursSortOrder, setHoursSortOrder] = React.useState<'desc' | 'asc' | 'kode'>('desc');
+
+  const runningHoursData = React.useMemo(() => {
+    const list = [...gensets].map((g) => {
+      const shortName = g.nama
+        .replace('GENSET ', '')
+        .replace('(SATUAN DENMA)', '')
+        .trim();
+      return {
+        id: g.id,
+        kode: g.kode,
+        nama: g.nama,
+        shortName: `${g.kode} (${shortName})`,
+        jamOperasi: g.jamOperasi,
+        kondisi: g.kondisi,
+        healthScore: g.healthScore,
+        lokasi: g.lokasi,
+        kapasitas: g.kapasitas,
+        // Status threshold
+        overhaulStatus:
+          g.jamOperasi >= 4000
+            ? 'Perlu Mayor Overhaul (>4000 Jam)'
+            : g.jamOperasi >= 2500
+            ? 'Menjelang Top Overhaul (2500-4000 Jam)'
+            : 'Jam Operasi Normal (<2500 Jam)',
+        barColor:
+          g.kondisi === 'S'
+            ? '#10b981'
+            : g.kondisi === 'US Ringan'
+            ? '#f59e0b'
+            : '#ef4444',
+      };
+    });
+
+    if (hoursSortOrder === 'desc') {
+      return list.sort((a, b) => b.jamOperasi - a.jamOperasi);
+    } else if (hoursSortOrder === 'asc') {
+      return list.sort((a, b) => a.jamOperasi - b.jamOperasi);
+    }
+    return list.sort((a, b) => a.kode.localeCompare(b.kode));
+  }, [gensets, hoursSortOrder]);
+
+  const totalJamOperasi = gensets.reduce((acc, g) => acc + g.jamOperasi, 0);
+  const avgJamOperasi = totalGenset > 0 ? Math.round(totalJamOperasi / totalGenset) : 0;
+  const maxJamUnit = gensets.length > 0 ? [...gensets].sort((a, b) => b.jamOperasi - a.jamOperasi)[0] : null;
+  const minJamUnit = gensets.length > 0 ? [...gensets].sort((a, b) => a.jamOperasi - b.jamOperasi)[0] : null;
 
   const filteredGensets =
     selectedKondisiFilter === 'ALL'
@@ -504,6 +673,328 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
+      {/* HIGHLIGHT & PENGINGAT JADWAL PERAWATAN BERKALA (PREVENTIVE MAINTENANCE - PM) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        {/* Header Bar */}
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3.5 bg-gradient-to-r from-slate-50 via-white to-blue-50/40">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="relative">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                <CalendarClock className="w-5 h-5" />
+              </div>
+              {actionNeededCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 border-2 border-white animate-pulse" />
+              )}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900">
+                  Pengingat & Highlight Jadwal Perawatan Berkala (PM)
+                </h3>
+                {actionNeededCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                    <Bell className="w-3 h-3 text-amber-700" />
+                    {actionNeededCount} Unit Butuh Tindakan
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Semua Unit On-Schedule
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Pemantauan otomatis siklus servis berbasis <strong>Jam Operasi (Hour Meter 250 Jam)</strong> dan{' '}
+                <strong>Interval Kalender (30 Hari)</strong> untuk mencegah downtime tak terduga.
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Counter Pills & Filter Controls */}
+          <div className="flex flex-wrap items-center gap-1.5 self-start lg:self-auto">
+            <button
+              type="button"
+              onClick={() => setPmFilter('ACTION_NEEDED')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                pmFilter === 'ACTION_NEEDED'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <span>Perlu Tindakan</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  pmFilter === 'ACTION_NEEDED' ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {actionNeededCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPmFilter('OVERDUE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                pmFilter === 'OVERDUE'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+              }`}
+            >
+              <span>Jatuh Tempo</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  pmFilter === 'OVERDUE' ? 'bg-white text-rose-700' : 'bg-rose-200 text-rose-900'
+                }`}
+              >
+                {overduePMCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPmFilter('UPCOMING')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                pmFilter === 'UPCOMING'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <span>Mendekati</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  pmFilter === 'UPCOMING' ? 'bg-white text-amber-800' : 'bg-amber-200 text-amber-900'
+                }`}
+              >
+                {upcomingPMCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPmFilter('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                pmFilter === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Semua ({pmScheduleData.length})
+            </button>
+          </div>
+        </div>
+
+        {/* PM Reminder Content Grid / List */}
+        <div className="p-4 sm:p-6 space-y-3.5">
+          {filteredPMSchedules.length === 0 ? (
+            <div className="py-8 text-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+              <p className="font-semibold text-slate-700 text-xs">
+                Tidak ada unit genset pada filter "{pmFilter === 'OVERDUE' ? 'Jatuh Tempo' : pmFilter === 'UPCOMING' ? 'Mendekati Jadwal' : 'Perlu Tindakan'}".
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Seluruh unit armada beroperasi dalam parameter siklus perawatan berkala yang aman.
+              </p>
+              <button
+                type="button"
+                onClick={() => setPmFilter('ALL')}
+                className="mt-3 text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+              >
+                Lihat Semua Jadwal Unit →
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+              {filteredPMSchedules.map((item) => {
+                const isOverdue = item.urgency === 'OVERDUE';
+                const isUpcoming = item.urgency === 'UPCOMING';
+
+                return (
+                  <div
+                    key={item.genset.id}
+                    className={`rounded-xl p-4 sm:p-5 border transition-all duration-150 flex flex-col justify-between ${
+                      isOverdue
+                        ? 'bg-gradient-to-br from-rose-50/90 via-white to-rose-50/40 border-rose-300 ring-1 ring-rose-200 shadow-xs'
+                        : isUpcoming
+                        ? 'bg-gradient-to-br from-amber-50/80 via-white to-amber-50/30 border-amber-300 ring-1 ring-amber-200 shadow-2xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 shadow-2xs'
+                    }`}
+                  >
+                    <div>
+                      {/* Top Badges */}
+                      <div className="flex items-start justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs bg-slate-900 text-white px-2 py-0.5 rounded shadow-2xs">
+                            {item.genset.kode}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                              item.genset.kondisi === 'S'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : item.genset.kondisi === 'US Ringan'
+                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                : 'bg-red-100 text-red-800 border-red-300'
+                            }`}
+                          >
+                            Kondisi {item.genset.kondisi}
+                          </span>
+                        </div>
+
+                        {/* Urgency Highlight Pill */}
+                        {isOverdue && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-600 text-white shadow-2xs animate-pulse">
+                            <AlertOctagon className="w-3 h-3" />
+                            JATUH TEMPO (OVERDUE)
+                          </span>
+                        )}
+                        {isUpcoming && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-slate-950 shadow-2xs">
+                            <Timer className="w-3 h-3" />
+                            MENDEKATI JADWAL PM
+                          </span>
+                        )}
+                        {!isOverdue && !isUpcoming && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            JADWAL NORMAL
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Genset Title & Specs */}
+                      <div className="mb-3">
+                        <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
+                          {item.genset.nama}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-0.5">
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-400" />
+                            {item.genset.lokasi}
+                          </span>
+                          <span>·</span>
+                          <span className="font-semibold text-slate-700">{item.genset.kapasitas}</span>
+                          <span>·</span>
+                          <span>Health Score: <strong className={item.genset.healthScore >= 80 ? 'text-emerald-700' : item.genset.healthScore >= 60 ? 'text-amber-700' : 'text-red-700'}>{item.genset.healthScore}%</strong></span>
+                        </div>
+                      </div>
+
+                      {/* Primary Trigger / Reason Alert Callout */}
+                      <div
+                        className={`p-2.5 rounded-lg text-xs mb-3 flex items-start gap-2 ${
+                          isOverdue
+                            ? 'bg-rose-100/80 text-rose-900 border border-rose-200'
+                            : isUpcoming
+                            ? 'bg-amber-100/70 text-amber-900 border border-amber-200'
+                            : 'bg-slate-50 text-slate-700 border border-slate-200'
+                        }`}
+                      >
+                        <AlertTriangle
+                          className={`w-4 h-4 shrink-0 mt-0.5 ${
+                            isOverdue ? 'text-rose-600' : isUpcoming ? 'text-amber-600' : 'text-slate-400'
+                          }`}
+                        />
+                        <div>
+                          <span className="font-bold block">Status Peringatan: {item.urgencyLabel}</span>
+                          <span className="text-[11px] leading-relaxed block">{item.primaryReason}</span>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar towards Next PM Cycle (250h) */}
+                      <div className="space-y-1.5 mb-3 bg-white/80 p-3 rounded-lg border border-slate-200/80">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-700 flex items-center gap-1">
+                            <Gauge className="w-3.5 h-3.5 text-blue-600" />
+                            Progres Jam Kerja Menuju Servis:
+                          </span>
+                          <span className="font-mono font-bold text-slate-900">
+                            {item.genset.jamOperasi} / {item.nextTargetHours} Jam
+                          </span>
+                        </div>
+
+                        {/* Progress track */}
+                        <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-300 ${
+                              isOverdue
+                                ? 'bg-rose-600'
+                                : isUpcoming
+                                ? 'bg-amber-500'
+                                : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${Math.max(5, item.hoursProgress)}%` }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                          <span>
+                            Siklus 250 Jam (Tercapai: <strong>{item.hoursInCycle} Jam</strong>)
+                          </span>
+                          <span className={`font-mono font-bold ${
+                            item.remainingHours <= 5 ? 'text-rose-700' : item.remainingHours <= 30 ? 'text-amber-700' : 'text-slate-700'
+                          }`}>
+                            {item.remainingHours <= 0 ? 'Mencapai Batas!' : `Sisa ${item.remainingHours} Jam`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Technical PM Recommendation */}
+                      <div className="p-3 bg-slate-50/90 rounded-lg border border-slate-200 text-xs space-y-1.5 mb-3">
+                        <div className="flex items-center justify-between font-bold text-slate-900">
+                          <span className="flex items-center gap-1.5 text-blue-700">
+                            <Wrench className="w-3.5 h-3.5" />
+                            {item.pmType}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            SPK Terakhir: {item.lastMaintSPK}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                          <strong>Tindakan Wajib:</strong> {item.pmActionPlan}
+                        </p>
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-200">
+                          <span>Servis Terakhir: {item.lastMaintDate} ({item.daysSinceLastMaint} hari lalu)</span>
+                          <span className="font-semibold text-slate-700">Toleransi Bulanan: Sisa {item.daysRemainingMonthly} hari</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSelectGensetDetail(item.genset)}
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                      >
+                        <span>Lihat Histori Unit</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onNavigate('perawatan');
+                          }}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer flex items-center gap-1 ${
+                            isOverdue
+                              ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                              : isUpcoming
+                              ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                              : 'bg-blue-600 hover:bg-blue-700 text-white'
+                          }`}
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          <span>Buat SPK Servis</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Visual Readiness Summary with Recharts (Diagram Lingkaran) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
@@ -513,13 +1004,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <span>Ringkasan Visual Kesiapan Genset</span>
+                <span>Grafik Distribusi Kondisi Kesiapan Genset (S / US)</span>
                 <span className="text-[10px] font-normal uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
-                  Diagram Lingkaran
+                  Diagram Donat
                 </span>
               </h3>
               <p className="text-xs text-slate-500">
-                Proporsi kondisi operasional unit Denma: Kondisi S, US Ringan, dan US
+                Visualisasi persentase dan proporsi kondisi operasional seluruh armada Denma: Siap (S), US Ringan, dan Rusak / Tidak Siap (US)
               </p>
             </div>
           </div>
@@ -869,6 +1360,222 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <span className="text-slate-400">
               * Perhitungan otomatis berdasarkan checklist 13 parameter teknis
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* BAR CHART: Tren Jam Operasi Genset & Batas Overhaul Seluruh Unit (Recharts) */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                <BarChart3 className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900">
+                Visualisasi Jam Operasi Genset & Batas Pemeliharaan (Recharts)
+              </h3>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                Running Hours Unit
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Perbandingan akumulasi jam kerja mesin (Hour Meter) seluruh armada genset Denma terhadap batas Top Overhaul (2500 Jam) dan Mayor Overhaul (4000 Jam)
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-xs text-slate-500 font-medium">Urutkan:</span>
+            <select
+              value={hoursSortOrder}
+              onChange={(e) => setHoursSortOrder(e.target.value as any)}
+              className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              <option value="desc">Jam Kerja Tertinggi → Terendah</option>
+              <option value="asc">Jam Kerja Terendah → Tertinggi</option>
+              <option value="kode">Berdasarkan Kode Unit</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Counter Summary Pills */}
+        <div className="px-6 py-3 bg-slate-50/60 border-b border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Total Akumulasi</span>
+            <span className="text-base font-bold font-mono text-slate-900">
+              {totalJamOperasi.toLocaleString('id-ID')} Jam
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Rata-rata Armada</span>
+            <span className="text-base font-bold font-mono text-indigo-700">
+              {avgJamOperasi.toLocaleString('id-ID')} Jam
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Jam Tertinggi</span>
+            <span className="text-base font-bold font-mono text-amber-700">
+              {maxJamUnit ? `${maxJamUnit.jamOperasi} Jam` : '-'}
+            </span>
+            <span className="text-[10px] text-slate-400 ml-1 truncate block">
+              {maxJamUnit?.kode}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-medium">Jam Terendah</span>
+            <span className="text-base font-bold font-mono text-emerald-700">
+              {minJamUnit ? `${minJamUnit.jamOperasi} Jam` : '-'}
+            </span>
+            <span className="text-[10px] text-slate-400 ml-1 truncate block">
+              {minJamUnit?.kode}
+            </span>
+          </div>
+        </div>
+
+        {/* Recharts Bar Chart Container */}
+        <div className="p-6">
+          <div className="h-72 sm:h-80 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={runningHoursData}
+                margin={{ top: 18, right: 20, left: -10, bottom: 25 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="kode"
+                  tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  interval={0}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  tickLine={false}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  unit=" J"
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload;
+                      return (
+                        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs border border-slate-700">
+                          <div className="font-bold text-slate-200 border-b border-slate-700 pb-1 mb-2 flex items-center justify-between gap-4">
+                            <div>
+                              <span className="text-indigo-300 font-mono text-xs">{data.kode}</span>
+                              <div className="text-white text-xs">{data.nama}</div>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                data.kondisi === 'S'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                  : data.kondisi === 'US Ringan'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                  : 'bg-red-500/20 text-red-300 border border-red-400/30'
+                              }`}
+                            >
+                              {data.kondisi === 'S' ? 'Siap (S)' : data.kondisi === 'US Ringan' ? 'US Ringan' : 'US (Rusak)'}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-slate-400">Total Jam Operasi:</span>
+                              <span className="font-mono font-bold text-indigo-300 text-sm">
+                                {data.jamOperasi.toLocaleString('id-ID')} Jam
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-slate-400">Lokasi / Kapasitas:</span>
+                              <span className="text-slate-200">{data.lokasi} · {data.kapasitas}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-slate-400">Health Score:</span>
+                              <span className="font-mono font-bold text-emerald-400">{data.healthScore}%</span>
+                            </div>
+                            <div className="pt-1.5 mt-1 border-t border-slate-800 text-[10px]">
+                              <span className="text-slate-400 block mb-0.5">Siklus Pemeliharaan:</span>
+                              <span className={`font-semibold ${
+                                data.jamOperasi >= 4000 ? 'text-rose-300' : data.jamOperasi >= 2500 ? 'text-amber-300' : 'text-emerald-300'
+                              }`}>
+                                {data.overhaulStatus}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                {/* Ambang Batas Top Overhaul 2500 Jam */}
+                <ReferenceLine
+                  y={2500}
+                  stroke="#f59e0b"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                  label={{
+                    value: 'Batas Top Overhaul (2.500 Jam)',
+                    fill: '#d97706',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    position: 'insideTopLeft',
+                  }}
+                />
+                {/* Ambang Batas Mayor Overhaul 4000 Jam */}
+                <ReferenceLine
+                  y={4000}
+                  stroke="#ef4444"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                  label={{
+                    value: 'Batas Mayor Overhaul (4.000 Jam)',
+                    fill: '#dc2626',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    position: 'insideTopLeft',
+                  }}
+                />
+                <Bar
+                  dataKey="jamOperasi"
+                  name="Jam Operasi (Hour Meter)"
+                  radius={[6, 6, 0, 0]}
+                  cursor="pointer"
+                  onClick={(entry) => {
+                    const sel = gensets.find((g) => g.id === entry.id);
+                    if (sel) onSelectGensetDetail(sel);
+                  }}
+                >
+                  {runningHoursData.map((entry, index) => (
+                    <Cell
+                      key={`bar-${index}`}
+                      fill={entry.barColor}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="font-semibold text-slate-700">Warna Bar Berdasarkan Kondisi:</span>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
+                <span>Kondisi S (Siap)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block" />
+                <span>Kondisi US Ringan</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
+                <span>Kondisi US (Tidak Siap)</span>
+              </div>
+            </div>
+            <span className="text-slate-400">
+              * Klik batang grafik untuk membuka rincian spesifikasi unit genset
             </span>
           </div>
         </div>

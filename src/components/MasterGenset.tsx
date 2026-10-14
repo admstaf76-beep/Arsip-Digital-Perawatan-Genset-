@@ -23,6 +23,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import { PrintableGensetMaintenanceReportModal } from './PrintableGensetMaintenanceReportModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface MasterGensetProps {
   gensets: GensetItem[];
@@ -57,7 +58,20 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<GensetItem>>({});
 
-  const canEdit = activeUser.role === 'TEKNISI' || activeUser.role === 'ADMIN2';
+  // Delete Confirmation Modal State
+  const [deleteTarget, setDeleteTarget] = useState<GensetItem | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDeleteGenset(deleteTarget.id);
+      if (selectedGensetDetail?.id === deleteTarget.id) {
+        setSelectedGensetDetail(null);
+      }
+      setDeleteTarget(null);
+    }
+  };
+
+  const canEdit = activeUser.role === 'TEKNISI' || activeUser.role === 'ADMIN2' || activeUser.role === 'ADMIN1';
 
   // Filtered List
   const filteredGensets = gensets.filter((g) => {
@@ -315,7 +329,7 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
                         Edit
                       </button>
                       <button
-                        onClick={() => onDeleteGenset(g.id)}
+                        onClick={() => setDeleteTarget(g)}
                         className="p-1 text-red-600 hover:bg-red-50 rounded"
                         title="Hapus"
                       >
@@ -469,7 +483,7 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
                               <Edit3 className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => onDeleteGenset(g.id)}
+                              onClick={() => setDeleteTarget(g)}
                               title="Hapus Unit"
                               className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                             >
@@ -780,16 +794,28 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
               </span>
               <div className="flex items-center gap-2">
                 {canEdit && (
-                  <button
-                    onClick={() => {
-                      const cur = selectedGensetDetail;
-                      setSelectedGensetDetail(null);
-                      handleOpenEdit(cur);
-                    }}
-                    className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Edit Data & Foto Ini
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        setDeleteTarget(selectedGensetDetail);
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Hapus Unit
+                    </button>
+                    <button
+                      onClick={() => {
+                        const cur = selectedGensetDetail;
+                        setSelectedGensetDetail(null);
+                        handleOpenEdit(cur);
+                      }}
+                      className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      Edit Data
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={() => setSelectedGensetDetail(null)}
@@ -1064,6 +1090,20 @@ export const MasterGenset: React.FC<MasterGensetProps> = ({
         genset={reportingGenset}
         maintenances={maintenances}
         activeUser={activeUser}
+      />
+
+      {/* Confirmation Modal for Deleting Genset */}
+      <ConfirmDeleteModal
+        isOpen={deleteTarget !== null}
+        title="Konfirmasi Hapus Unit Genset"
+        itemName={deleteTarget ? `${deleteTarget.nama} (${deleteTarget.kode})` : ''}
+        itemDetails={
+          deleteTarget
+            ? `Satuan: ${deleteTarget.satuan} · Lokasi: ${deleteTarget.lokasi} · Daya: ${deleteTarget.kapasitas}`
+            : undefined
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   );

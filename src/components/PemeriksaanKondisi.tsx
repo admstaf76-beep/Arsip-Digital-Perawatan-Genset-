@@ -21,13 +21,17 @@ import {
   X,
   Gauge,
   Zap,
+  Edit3,
+  Trash2,
 } from 'lucide-react';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface PemeriksaanKondisiProps {
   inspections: InspectionRecord[];
   gensets: GensetItem[];
   activeUser: UserSession;
-  onSaveInspection: (record: InspectionRecord) => void;
+  onSaveInspection: (record: InspectionRecord, isNew?: boolean) => void;
+  onDeleteInspection: (id: string) => void;
   isNewModalOpen: boolean;
   setIsNewModalOpen: (open: boolean) => void;
 }
@@ -37,12 +41,25 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
   gensets,
   activeUser,
   onSaveInspection,
+  onDeleteInspection,
   isNewModalOpen,
   setIsNewModalOpen,
 }) => {
   const [selectedGensetId, setSelectedGensetId] = useState<string>('SEMUA');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDetail, setSelectedDetail] = useState<InspectionRecord | null>(null);
+  const [editingInspectionId, setEditingInspectionId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<InspectionRecord | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDeleteInspection(deleteTarget.id);
+      if (selectedDetail?.id === deleteTarget.id) {
+        setSelectedDetail(null);
+      }
+      setDeleteTarget(null);
+    }
+  };
 
   // Form State for 13 Parameters
   const [targetGensetId, setTargetGensetId] = useState<string>(gensets[0]?.id || '');
@@ -111,16 +128,53 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
     return 'Normal';
   };
 
+  const handleOpenAdd = () => {
+    setEditingInspectionId(null);
+    setTargetGensetId(gensets[0]?.id || '');
+    setTeknisiName(activeUser.name);
+    setParams({
+      mesin: 'Halus dan Stabil',
+      oli: 'Level Normal & Warna Bersih',
+      temperatur: 82,
+      getaran: 'Normal (Rendah)',
+      pendingin: 'Radiator Bersih & Coolant Cukup',
+      bbm: 85,
+      battery: 25.2,
+      charger: 'Float Charger Berfungsi Normal',
+      tegangan: 382,
+      frekuensi: 50.0,
+      alarm: 'Normal (Nihil Alarm)',
+      controller: 'Standby Auto Mode',
+      ats: 'Standby Auto Mode',
+    });
+    setCatatan('');
+    setFotoPemeriksaan('');
+    setIsNewModalOpen(true);
+  };
+
+  const handleOpenEdit = (insp: InspectionRecord) => {
+    setEditingInspectionId(insp.id);
+    setTargetGensetId(insp.gensetId);
+    setTeknisiName(insp.teknisi);
+    setParams({ ...insp.parameter });
+    setCatatan(insp.catatan || '');
+    setFotoPemeriksaan(insp.foto || '');
+    setIsNewModalOpen(true);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const genset = gensets.find((g) => g.id === targetGensetId) || gensets[0];
     const status = calculateStatus();
+    const isEditing = Boolean(editingInspectionId);
 
-    const newRecord: InspectionRecord = {
-      id: `INSP-${Date.now().toString().slice(-6)}`,
+    const recordData: InspectionRecord = {
+      id: editingInspectionId || `INSP-${Date.now().toString().slice(-6)}`,
       gensetId: genset.id,
       gensetName: genset.nama,
-      tanggal: new Date().toISOString().slice(0, 10),
+      tanggal: isEditing
+        ? (inspections.find((i) => i.id === editingInspectionId)?.tanggal || new Date().toISOString().slice(0, 10))
+        : new Date().toISOString().slice(0, 10),
       teknisi: teknisiName,
       parameter: { ...params },
       status,
@@ -128,8 +182,9 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
       foto: fotoPemeriksaan,
     };
 
-    onSaveInspection(newRecord);
+    onSaveInspection(recordData, !isEditing);
     setIsNewModalOpen(false);
+    setEditingInspectionId(null);
     setCatatan('');
     setFotoPemeriksaan('');
   };
@@ -150,10 +205,7 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
 
         {canInput && (
           <button
-            onClick={() => {
-              setTeknisiName(activeUser.name);
-              setIsNewModalOpen(true);
-            }}
+            onClick={handleOpenAdd}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-xs cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -201,7 +253,7 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
               Belum ada riwayat checklist pemeriksaan kondisi.
             </div>
           ) : (
-            filteredInspections.map((insp) => (
+            filteredInspections.map((insp, idx) => (
               <div
                 key={insp.id}
                 onClick={() => setSelectedDetail(insp)}
@@ -209,9 +261,14 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h4 className="font-bold text-sm text-slate-900">{insp.gensetName}</h4>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                      <span className="font-mono text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold">
+                        No. {idx + 1}
+                      </span>
+                      <h4 className="font-bold text-sm text-slate-900">{insp.gensetName}</h4>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                      <span className="font-mono text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-bold">
                         {insp.id}
                       </span>
                       <span>{insp.tanggal}</span>
@@ -256,19 +313,36 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
                   <span className="text-[11px] text-slate-500">
                     Teknisi: <strong className="text-slate-700">{insp.teknisi}</strong>
                   </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedDetail(insp);
-                    }}
-                    className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
-                  >
-                    Lihat 13 Parameter
-                  </button>
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => setSelectedDetail(insp)}
+                      className="px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+                    >
+                      13 Parameter
+                    </button>
+                    {canInput && (
+                      <button
+                        onClick={() => handleOpenEdit(insp)}
+                        className="p-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors"
+                        title="Edit Pemeriksaan"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                      <button
+                        onClick={() => setDeleteTarget(insp)}
+                        className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors"
+                        title="Hapus Pemeriksaan"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
@@ -280,7 +354,8 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="py-3 px-4">No / ID</th>
+                <th className="py-3 px-3 text-center w-12 font-bold">No.</th>
+                <th className="py-3 px-4">ID Inspeksi</th>
                 <th className="py-3 px-4">Tanggal & Waktu</th>
                 <th className="py-3 px-4">Unit Genset</th>
                 <th className="py-3 px-4">Teknisi Pemeriksa</th>
@@ -290,13 +365,13 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
                 <th className="py-3 px-4 text-center">Battery (V)</th>
                 <th className="py-3 px-4 text-center">BBM (%)</th>
                 <th className="py-3 px-4 text-center">Hasil 13 Item</th>
-                <th className="py-3 px-4 text-right">Detail</th>
+                <th className="py-3 px-4 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredInspections.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-8 text-center text-slate-500">
+                  <td colSpan={12} className="py-8 text-center text-slate-500">
                     Belum ada riwayat checklist pemeriksaan kondisi.
                   </td>
                 </tr>
@@ -308,8 +383,14 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
                       onClick={() => setSelectedDetail(insp)}
                       className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                     >
-                      <td className="py-3 px-4 font-mono font-bold text-slate-700">
-                        {idx + 1}. <span className="text-[11px] text-slate-500">{insp.id}</span>
+                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-800">
+                        {idx + 1}
+                      </td>
+
+                      <td className="py-3 px-4 font-mono font-bold text-blue-700">
+                        <span className="bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-[11px]">
+                          {insp.id}
+                        </span>
                       </td>
 
                       <td className="py-3 px-4 font-medium text-slate-800">
@@ -370,16 +451,37 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
                         )}
                       </td>
 
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedDetail(insp);
-                          }}
-                          className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                        >
-                          Lihat 13 Parameter
-                        </button>
+                      <td
+                        className="py-3 px-4 text-right whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setSelectedDetail(insp)}
+                            className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                            title="Lihat 13 Parameter"
+                          >
+                            Detail
+                          </button>
+                          {canInput && (
+                            <button
+                              onClick={() => handleOpenEdit(insp)}
+                              className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded transition-colors"
+                              title="Edit Pemeriksaan"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                            <button
+                              onClick={() => setDeleteTarget(insp)}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded transition-colors"
+                              title="Hapus Pemeriksaan"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -521,13 +623,41 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
               )}
             </div>
 
-            <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-end">
-              <button
-                onClick={() => setSelectedDetail(null)}
-                className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors cursor-pointer"
-              >
-                Tutup
-              </button>
+            <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <div>
+                {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                  <button
+                    onClick={() => {
+                      setDeleteTarget(selectedDetail);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Hapus Pemeriksaan
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {canInput && (
+                  <button
+                    onClick={() => {
+                      const cur = selectedDetail;
+                      setSelectedDetail(null);
+                      handleOpenEdit(cur);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Edit Pemeriksaan Ini
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedDetail(null)}
+                  className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -538,9 +668,14 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between sticky top-0 z-10">
-              <h3 className="font-bold text-base text-slate-100">
-                Input Lembar Pemeriksaan Kondisi (13 Item)
-              </h3>
+              <div>
+                <h3 className="font-bold text-base text-slate-100">
+                  {editingInspectionId ? 'Edit Lembar Pemeriksaan Kondisi (13 Item)' : 'Input Lembar Pemeriksaan Kondisi (13 Item)'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {editingInspectionId ? `ID: ${editingInspectionId}` : 'Checklist berkala kondisi mesin dan kelistrikan'}
+                </p>
+              </div>
               <button
                 onClick={() => setIsNewModalOpen(false)}
                 className="text-slate-400 hover:text-white p-1"
@@ -790,13 +925,27 @@ export const PemeriksaanKondisi: React.FC<PemeriksaanKondisiProps> = ({
                   type="submit"
                   className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-xs cursor-pointer"
                 >
-                  Simpan Hasil Pemeriksaan
+                  {editingInspectionId ? 'Perbarui Pemeriksaan' : 'Simpan Hasil Pemeriksaan'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Deleting Inspection */}
+      <ConfirmDeleteModal
+        isOpen={deleteTarget !== null}
+        title="Konfirmasi Hapus Checklist Pemeriksaan"
+        itemName={deleteTarget ? `${deleteTarget.id} - ${deleteTarget.gensetName}` : ''}
+        itemDetails={
+          deleteTarget
+            ? `Tanggal: ${deleteTarget.tanggal} · Teknisi: ${deleteTarget.teknisi} · Status: ${deleteTarget.status}`
+            : undefined
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 };

@@ -157,23 +157,31 @@ export default function App() {
   const handleDeleteGenset = (id: string) => {
     const target = gensets.find((g) => g.id === id);
     if (!target) return;
-    if (window.confirm(`Yakin ingin menghapus data master ${target.nama}?`)) {
-      const updated = gensets.filter((g) => g.id !== id);
-      setGensets(updated);
-      const updatedLogs = logAuditEvent(
-        activeUser,
-        'Hapus Master Genset',
-        `Menghapus data unit ${target.nama} (${target.kode})`
-      );
-      setAuditLogs(updatedLogs);
-      showToast(`Unit ${target.nama} telah dihapus.`);
+    const updated = gensets.filter((g) => g.id !== id);
+    setGensets(updated);
+    saveStoredGensets(updated);
+    if (selectedGensetDetail?.id === id) {
+      setSelectedGensetDetail(null);
     }
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Hapus Master Genset',
+      `Menghapus data unit ${target.nama} (${target.kode})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast(`Unit ${target.nama} telah dihapus.`);
   };
 
-  // Handler for Inspection Checklist Save
-  const handleSaveInspection = (record: InspectionRecord) => {
-    const updatedInspections = [record, ...inspections];
+  // Handler for Inspection Checklist Save / Edit
+  const handleSaveInspection = (record: InspectionRecord, isNew: boolean = true) => {
+    let updatedInspections: InspectionRecord[];
+    if (isNew) {
+      updatedInspections = [record, ...inspections];
+    } else {
+      updatedInspections = inspections.map((i) => (i.id === record.id ? record : i));
+    }
     setInspections(updatedInspections);
+    saveStoredInspections(updatedInspections);
 
     // Automatically recalculate / adjust genset health score and condition
     let newScore = 85;
@@ -197,14 +205,15 @@ export default function App() {
       return g;
     });
     setGensets(updatedGensets);
+    saveStoredGensets(updatedGensets);
 
     const updatedLogs = logAuditEvent(
       activeUser,
-      'Input Pemeriksaan 13 Parameter',
-      `Inspeksi ${record.gensetName} status: ${record.status} oleh ${record.teknisi}`
+      isNew ? 'Input Pemeriksaan 13 Parameter' : 'Edit Pemeriksaan 13 Parameter',
+      `Inspeksi ${record.gensetName} (${record.id}) status: ${record.status} oleh ${record.teknisi}`
     );
     setAuditLogs(updatedLogs);
-    showToast(`Checklist pemeriksaan ${record.gensetName} berhasil disimpan.`);
+    showToast(isNew ? `Checklist pemeriksaan ${record.gensetName} berhasil disimpan.` : `Data pemeriksaan ${record.id} berhasil diperbarui.`);
 
     // Real-time synchronization to Google Sheets if configured
     if (isAutoSyncEnabled()) {
@@ -223,18 +232,39 @@ export default function App() {
     }
   };
 
-  // Handler for Maintenance Work Order Save
-  const handleSaveMaintenance = (record: MaintenanceRecord) => {
-    const updated = [record, ...maintenances];
+  // Handler for Deleting Inspection Record
+  const handleDeleteInspection = (id: string) => {
+    const target = inspections.find((i) => i.id === id);
+    const updated = inspections.filter((i) => i.id !== id);
+    setInspections(updated);
+    saveStoredInspections(updated);
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Hapus Pemeriksaan 13 Parameter',
+      `Menghapus checklist pemeriksaan ID: ${id} (${target?.gensetName || ''})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast('Data pemeriksaan kondisi berhasil dihapus.');
+  };
+
+  // Handler for Maintenance Work Order Save / Edit
+  const handleSaveMaintenance = (record: MaintenanceRecord, isNew: boolean = true) => {
+    let updated: MaintenanceRecord[];
+    if (isNew) {
+      updated = [record, ...maintenances];
+    } else {
+      updated = maintenances.map((m) => (m.id === record.id ? record : m));
+    }
     setMaintenances(updated);
+    saveStoredMaintenances(updated);
 
     const updatedLogs = logAuditEvent(
       activeUser,
-      'Submit SPK Perawatan (CMMS)',
-      `Mencatat perawatan ${record.komponen} pada ${record.gensetName} (${record.nomorPekerjaan})`
+      isNew ? 'Submit SPK Perawatan (CMMS)' : 'Edit SPK Perawatan (CMMS)',
+      `Perawatan ${record.komponen} pada ${record.gensetName} (${record.nomorPekerjaan})`
     );
     setAuditLogs(updatedLogs);
-    showToast(`SPK ${record.nomorPekerjaan} berhasil disubmit ke antrean Kadislog.`);
+    showToast(isNew ? `SPK ${record.nomorPekerjaan} berhasil disubmit ke antrean Kadislog.` : `Data SPK ${record.nomorPekerjaan} berhasil diperbarui.`);
 
     // Real-time synchronization to Google Sheets if configured
     if (isAutoSyncEnabled()) {
@@ -251,6 +281,21 @@ export default function App() {
         }
       });
     }
+  };
+
+  // Handler for Deleting Maintenance Record
+  const handleDeleteMaintenance = (id: string) => {
+    const target = maintenances.find((m) => m.id === id);
+    const updated = maintenances.filter((m) => m.id !== id);
+    setMaintenances(updated);
+    saveStoredMaintenances(updated);
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Hapus SPK Perawatan (CMMS)',
+      `Menghapus catatan SPK: ${target?.nomorPekerjaan || id} (${target?.gensetName || ''})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast('Catatan perawatan berhasil dihapus.');
   };
 
   // Handler for Kadislog Approval
@@ -271,6 +316,7 @@ export default function App() {
       return m;
     });
     setMaintenances(updated);
+    saveStoredMaintenances(updated);
 
     const updatedLogs = logAuditEvent(
       activeUser,
@@ -299,6 +345,7 @@ export default function App() {
       return m;
     });
     setMaintenances(updated);
+    saveStoredMaintenances(updated);
 
     const updatedLogs = logAuditEvent(
       activeUser,
@@ -309,31 +356,38 @@ export default function App() {
     showToast(`Pekerjaan ${targetSPK} DITOLAK. Teknisi perlu melakukan perbaikan.`);
   };
 
-  // Handler for Incident / Fault Report Save
-  const handleSaveIncident = (incident: IncidentRecord) => {
-    const updated = [incident, ...incidents];
+  // Handler for Incident / Fault Report Save / Edit
+  const handleSaveIncident = (incident: IncidentRecord, isNew: boolean = true) => {
+    let updated: IncidentRecord[];
+    if (isNew) {
+      updated = [incident, ...incidents];
+    } else {
+      updated = incidents.map((inc) => (inc.id === incident.id ? incident : inc));
+    }
     setIncidents(updated);
+    saveStoredIncidents(updated);
 
     // Update genset condition to US if critical
     const updatedGensets = gensets.map((g) => {
       if (g.id === incident.gensetId) {
         return {
           ...g,
-          kondisi: 'US' as const,
-          healthScore: Math.min(g.healthScore, 50),
+          kondisi: (incident.status === 'Selesai' ? 'S' : 'US') as ReadinessCondition,
+          healthScore: incident.status === 'Selesai' ? 85 : Math.min(g.healthScore, 50),
         };
       }
       return g;
     });
     setGensets(updatedGensets);
+    saveStoredGensets(updatedGensets);
 
     const updatedLogs = logAuditEvent(
       activeUser,
-      'Lapor Kerusakan Genset',
+      isNew ? 'Lapor Kerusakan Genset' : 'Edit Laporan Kerusakan',
       `Laporan ${incident.nomorLaporan} pada ${incident.gensetName}: ${incident.gejala}`
     );
     setAuditLogs(updatedLogs);
-    showToast(`Laporan kerusakan ${incident.nomorLaporan} berhasil dicatat.`);
+    showToast(isNew ? `Laporan kerusakan ${incident.nomorLaporan} berhasil dicatat.` : `Laporan kerusakan ${incident.nomorLaporan} berhasil diperbarui.`);
 
     // Real-time synchronization to Google Sheets if configured
     if (isAutoSyncEnabled()) {
@@ -352,6 +406,21 @@ export default function App() {
     }
   };
 
+  // Handler for Deleting Incident Record
+  const handleDeleteIncident = (id: string) => {
+    const target = incidents.find((inc) => inc.id === id);
+    const updated = incidents.filter((inc) => inc.id !== id);
+    setIncidents(updated);
+    saveStoredIncidents(updated);
+    const updatedLogs = logAuditEvent(
+      activeUser,
+      'Hapus Laporan Kerusakan',
+      `Menghapus laporan kerusakan ID: ${id} (${target?.nomorLaporan || ''})`
+    );
+    setAuditLogs(updatedLogs);
+    showToast('Laporan kerusakan berhasil dihapus.');
+  };
+
   // Handler for Incident Status Update
   const handleUpdateIncidentStatus = (
     id: string,
@@ -368,6 +437,7 @@ export default function App() {
       return inc;
     });
     setIncidents(updated);
+    saveStoredIncidents(updated);
 
     if (newStatus === 'Selesai') {
       const updatedGensets = gensets.map((g) => {
@@ -381,6 +451,7 @@ export default function App() {
         return g;
       });
       setGensets(updatedGensets);
+      saveStoredGensets(updatedGensets);
     }
 
     const updatedLogs = logAuditEvent(
@@ -572,6 +643,7 @@ export default function App() {
             gensets={gensets}
             activeUser={activeUser}
             onSaveInspection={handleSaveInspection}
+            onDeleteInspection={handleDeleteInspection}
             isNewModalOpen={isNewInspectionOpen}
             setIsNewModalOpen={setIsNewInspectionOpen}
           />
@@ -583,6 +655,7 @@ export default function App() {
             gensets={gensets}
             activeUser={activeUser}
             onSaveMaintenance={handleSaveMaintenance}
+            onDeleteMaintenance={handleDeleteMaintenance}
             onApproveMaintenance={handleApproveMaintenance}
             onRejectMaintenance={handleRejectMaintenance}
             isNewModalOpen={isNewMaintenanceOpen}
@@ -596,6 +669,7 @@ export default function App() {
             gensets={gensets}
             activeUser={activeUser}
             onSaveIncident={handleSaveIncident}
+            onDeleteIncident={handleDeleteIncident}
             onUpdateStatus={handleUpdateIncidentStatus}
             isNewModalOpen={isNewIncidentOpen}
             setIsNewModalOpen={setIsNewIncidentOpen}

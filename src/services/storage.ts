@@ -50,20 +50,11 @@ export const saveStoredGensets = (items: GensetItem[]) => {
 export const getStoredInspections = (): InspectionRecord[] => {
   try {
     const raw = localStorage.getItem(KEYS.INSPECTIONS);
-    if (!raw) {
+    if (raw === null) {
       localStorage.setItem(KEYS.INSPECTIONS, JSON.stringify(INITIAL_INSPECTIONS));
       return INITIAL_INSPECTIONS;
     }
-    const parsed: InspectionRecord[] = JSON.parse(raw);
-    // Ensure all rich initial records exist by id
-    const existingIds = new Set(parsed.map((p) => p.id));
-    const missing = INITIAL_INSPECTIONS.filter((i) => !existingIds.has(i.id));
-    if (missing.length > 0) {
-      const merged = [...parsed, ...missing];
-      localStorage.setItem(KEYS.INSPECTIONS, JSON.stringify(merged));
-      return merged;
-    }
-    return parsed;
+    return JSON.parse(raw);
   } catch {
     return INITIAL_INSPECTIONS;
   }
@@ -76,19 +67,11 @@ export const saveStoredInspections = (items: InspectionRecord[]) => {
 export const getStoredMaintenances = (): MaintenanceRecord[] => {
   try {
     const raw = localStorage.getItem(KEYS.MAINTENANCES);
-    if (!raw) {
+    if (raw === null) {
       localStorage.setItem(KEYS.MAINTENANCES, JSON.stringify(INITIAL_MAINTENANCES));
       return INITIAL_MAINTENANCES;
     }
-    const parsed: MaintenanceRecord[] = JSON.parse(raw);
-    const existingIds = new Set(parsed.map((p) => p.id));
-    const missing = INITIAL_MAINTENANCES.filter((m) => !existingIds.has(m.id));
-    if (missing.length > 0) {
-      const merged = [...parsed, ...missing];
-      localStorage.setItem(KEYS.MAINTENANCES, JSON.stringify(merged));
-      return merged;
-    }
-    return parsed;
+    return JSON.parse(raw);
   } catch {
     return INITIAL_MAINTENANCES;
   }
@@ -101,7 +84,7 @@ export const saveStoredMaintenances = (items: MaintenanceRecord[]) => {
 export const getStoredIncidents = (): IncidentRecord[] => {
   try {
     const raw = localStorage.getItem(KEYS.INCIDENTS);
-    if (!raw) {
+    if (raw === null) {
       localStorage.setItem(KEYS.INCIDENTS, JSON.stringify(INITIAL_INCIDENTS));
       return INITIAL_INCIDENTS;
     }
@@ -118,19 +101,11 @@ export const saveStoredIncidents = (items: IncidentRecord[]) => {
 export const getStoredOperational = (): GensetOperationalRecord[] => {
   try {
     const raw = localStorage.getItem(KEYS.OPERATIONAL);
-    if (!raw) {
+    if (raw === null) {
       localStorage.setItem(KEYS.OPERATIONAL, JSON.stringify(INITIAL_OPERATIONAL_RECORDS));
       return INITIAL_OPERATIONAL_RECORDS;
     }
-    const parsed: GensetOperationalRecord[] = JSON.parse(raw);
-    const existingIds = new Set(parsed.map((p) => p.id));
-    const missing = INITIAL_OPERATIONAL_RECORDS.filter((o) => !existingIds.has(o.id));
-    if (missing.length > 0) {
-      const merged = [...parsed, ...missing];
-      localStorage.setItem(KEYS.OPERATIONAL, JSON.stringify(merged));
-      return merged;
-    }
-    return parsed;
+    return JSON.parse(raw);
   } catch {
     return INITIAL_OPERATIONAL_RECORDS;
   }

@@ -34,8 +34,11 @@ import {
   Thermometer,
   RotateCcw,
   Sparkles,
+  Edit3,
+  Trash2,
 } from 'lucide-react';
 import { PrintableOperationalLogModal } from './PrintableOperationalLogModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface OperasionalGensetProps {
   operationalRecords: GensetOperationalRecord[];
@@ -60,9 +63,21 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
 
   // Modals
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [selectedDetailRecord, setSelectedDetailRecord] = useState<GensetOperationalRecord | null>(null);
   const [printModalRecord, setPrintModalRecord] = useState<GensetOperationalRecord | null>(null);
   const [completingRecord, setCompletingRecord] = useState<GensetOperationalRecord | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<GensetOperationalRecord | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDeleteOperationalRecord(deleteTarget.id);
+      if (selectedDetailRecord?.id === deleteTarget.id) {
+        setSelectedDetailRecord(null);
+      }
+      setDeleteTarget(null);
+    }
+  };
 
   // New Record Form State
   const [targetGensetId, setTargetGensetId] = useState<string>(gensets[0]?.id || '');
@@ -137,20 +152,120 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
 
   // Open New Modal with fresh IDs
   const handleOpenNewModal = () => {
+    setEditingRecordId(null);
     const nextNum = operationalRecords.length + 1;
     setNomorLog(`LOG-OPS-${new Date().getFullYear()}-${String(nextNum).padStart(3, '0')}`);
     setTanggal(new Date().toISOString().split('T')[0]);
+    setWaktuMulai('08:00');
+    setWaktuSelesai('10:00');
+    setKeperluan('Uji Coba Rutin / Warm-up');
+    setModeOperasi('Manual');
+    setOperatorName(activeUser.name || 'Teknisi Fasint');
+    setPendampingName('');
+    setCatatanKhusus('');
     const selGenset = gensets.find((g) => g.id === targetGensetId) || gensets[0];
     if (selGenset) {
       setHourMeterAwal(selGenset.jamOperasi);
       setHourMeterAkhir(selGenset.jamOperasi + 2);
       setPostHourMeterAkhir(selGenset.jamOperasi + 2);
     }
+    // Pre
+    setPraLevelOli('Cukup / Normal');
+    setPraLevelCoolant('Normal / Cukup');
+    setPraLevelBBM(85);
+    setPraVoltaseBaterai(25.2);
+    setPraKondisiRuang('Bersih & Aman');
+    setPraPosisiSelector('Manual');
+    setPraKondisiBelt('Kencang & Baik');
+    setPraStatusKesiapan('Siap & Aman Dioperasikan');
+    setPraCatatan('Pemeriksaan pra-start lengkap, semua item dalam kondisi prima.');
+    // Running
+    setRunVoltase(384);
+    setRunFrekuensi(50.0);
+    setRunRpm(1500);
+    setRunTekananOli(4.2);
+    setRunSuhuMesin(82);
+    setRunArusBeban(120);
+    setRunPersenBeban(45);
+    setRunSuaraGetaran('Halus & Normal');
+    setRunKondisiAsap('Normal / Bersih');
+    setRunCatatan('Engine running stabil, frekuensi dan voltase seimbang.');
+    // Post
+    setPostCoolingDown(5);
+    setPostLevelBBM(78);
+    setPostKonsumsiSolar(24);
+    setPostCekKebocoran('Nihil Kebocoran (Aman)');
+    setPostKebersihan('Unit Bersih & Ruang Terkunci');
+    setPostSelectorAkhir('Standby Auto (AMF/ATS)');
+    setPostChargerAki(true);
+    setPostKondisiAkhir('Siap Siaga / Standby Normal');
+    setPostCatatan('Cooling down 5 menit selesai, sistem standby otomatis siap beroperasi kembali.');
     setIsCurrentlyRunning(false);
     setIsNewModalOpen(true);
   };
 
-  // Handle Submit New Record
+  // Open Edit Modal with existing data populated
+  const handleOpenEditModal = (rec: GensetOperationalRecord) => {
+    setEditingRecordId(rec.id);
+    setNomorLog(rec.nomorLog);
+    setTargetGensetId(rec.gensetId);
+    setTanggal(rec.tanggal);
+    setWaktuMulai(rec.waktuMulai || '08:00');
+    setWaktuSelesai(rec.waktuSelesai || '10:00');
+    setIsCurrentlyRunning(rec.status === 'Beroperasi');
+    setKeperluan(rec.keperluan);
+    setModeOperasi(rec.modeOperasi);
+    setOperatorName(rec.operator);
+    setPendampingName(rec.petugasPendamping || '');
+    setHourMeterAwal(rec.hourMeterAwal);
+    setHourMeterAkhir(rec.hourMeterAkhir || rec.hourMeterAwal);
+    setCatatanKhusus(rec.catatanKhusus || '');
+
+    // Pre
+    if (rec.praOperasi) {
+      setPraLevelOli(rec.praOperasi.levelOli || 'Cukup / Normal');
+      setPraLevelCoolant(rec.praOperasi.levelCoolant || 'Normal / Cukup');
+      setPraLevelBBM(rec.praOperasi.levelBBM ?? 85);
+      setPraVoltaseBaterai(rec.praOperasi.teganganBaterai ?? 25.2);
+      setPraKondisiRuang(rec.praOperasi.kondisiFisikRuangan || 'Bersih & Aman');
+      setPraPosisiSelector(rec.praOperasi.posisiSelector || 'Manual');
+      setPraKondisiBelt(rec.praOperasi.kondisiBelt || 'Kencang & Baik');
+      setPraStatusKesiapan(rec.praOperasi.statusKesiapan || 'Siap & Aman Dioperasikan');
+      setPraCatatan(rec.praOperasi.catatanPra || '');
+    }
+
+    // Running
+    if (rec.saatOperasi) {
+      setRunVoltase(rec.saatOperasi.teganganL1L2 ?? 384);
+      setRunFrekuensi(rec.saatOperasi.frekuensi ?? 50.0);
+      setRunRpm(rec.saatOperasi.rpm ?? 1500);
+      setRunTekananOli(rec.saatOperasi.tekananOli ?? 4.2);
+      setRunSuhuMesin(rec.saatOperasi.temperaturMesin ?? 82);
+      setRunArusBeban(rec.saatOperasi.arusBeban ?? 120);
+      setRunPersenBeban(rec.saatOperasi.persenBeban ?? 45);
+      setRunSuaraGetaran(rec.saatOperasi.suaraDanGetaran || 'Halus & Normal');
+      setRunKondisiAsap(rec.saatOperasi.kondisiAsap || 'Normal / Bersih');
+      setRunCatatan(rec.saatOperasi.catatanSaat || '');
+    }
+
+    // Post
+    if (rec.pascaOperasi) {
+      setPostCoolingDown(rec.pascaOperasi.coolingDownDurasiMenit ?? 5);
+      setPostHourMeterAkhir(rec.pascaOperasi.hourMeterAkhir ?? rec.hourMeterAkhir ?? rec.hourMeterAwal);
+      setPostLevelBBM(rec.pascaOperasi.levelBBMAkhir ?? 78);
+      setPostKonsumsiSolar(rec.pascaOperasi.estimasiKonsumsiSolarLiter ?? 24);
+      setPostCekKebocoran(rec.pascaOperasi.cekKebocoran || 'Nihil Kebocoran (Aman)');
+      setPostKebersihan(rec.pascaOperasi.kebersihanDanKunci || 'Unit Bersih & Ruang Terkunci');
+      setPostSelectorAkhir(rec.pascaOperasi.posisiSelectorAkhir || 'Standby Auto (AMF/ATS)');
+      setPostChargerAki(rec.pascaOperasi.chargerAkiNormal ?? true);
+      setPostKondisiAkhir(rec.pascaOperasi.kondisiAkhirGenset || 'Siap Siaga / Standby Normal');
+      setPostCatatan(rec.pascaOperasi.catatanPasca || '');
+    }
+
+    setIsNewModalOpen(true);
+  };
+
+  // Handle Submit Record (Add or Edit)
   const handleSubmitNewRecord = (e: React.FormEvent) => {
     e.preventDefault();
     const selGenset = gensets.find((g) => g.id === targetGensetId) || gensets[0];
@@ -166,8 +281,11 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
       durasi = 60; // Initial estimated
     }
 
-    const newRecord: GensetOperationalRecord = {
-      id: `OPR-${Date.now()}`,
+    const isEditing = Boolean(editingRecordId);
+    const existingRec = isEditing ? operationalRecords.find((r) => r.id === editingRecordId) : null;
+
+    const recordData: GensetOperationalRecord = {
+      id: editingRecordId || `OPR-${Date.now()}`,
       nomorLog: nomorLog.trim(),
       gensetId: targetGensetId,
       gensetName: selGenset ? selGenset.nama : 'GENSET',
@@ -181,7 +299,13 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
       modeOperasi,
       operator: operatorName,
       petugasPendamping: pendampingName,
-      status: isCurrentlyRunning ? 'Beroperasi' : keperluan.includes('Uji Coba') ? 'Uji Coba' : 'Selesai',
+      status: isCurrentlyRunning
+        ? 'Beroperasi'
+        : keperluan.includes('Uji Coba')
+        ? 'Uji Coba'
+        : existingRec?.status === 'Beroperasi' && !isCurrentlyRunning
+        ? 'Selesai'
+        : existingRec?.status || 'Selesai',
       praOperasi: {
         levelOli: praLevelOli,
         levelCoolant: praLevelCoolant,
@@ -221,8 +345,9 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
       updatedAt: new Date().toLocaleString('id-ID'),
     };
 
-    onSaveOperationalRecord(newRecord, true);
+    onSaveOperationalRecord(recordData, !isEditing);
     setIsNewModalOpen(false);
+    setEditingRecordId(null);
   };
 
   // Open Shutdown / Complete Modal
@@ -654,17 +779,27 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
                         Cetak
                       </button>
 
-                      {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2') && (
+                      {/* Edit Button */}
+                      {(activeUser.role === 'TEKNISI' || activeUser.role === 'ADMIN2' || activeUser.role === 'ADMIN1') && (
                         <button
-                          onClick={() => {
-                            if (window.confirm(`Yakin ingin menghapus catatan logbook ${record.nomorLog}?`)) {
-                              onDeleteOperationalRecord(record.id);
-                            }
-                          }}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Hapus Catatan"
+                          onClick={() => handleOpenEditModal(record)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                          title="Edit Catatan & Parameter Operasional"
                         >
-                          <X className="w-4 h-4" />
+                          <Edit3 className="w-3.5 h-3.5" />
+                          Edit
+                        </button>
+                      )}
+
+                      {/* Delete Button */}
+                      {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                        <button
+                          onClick={() => setDeleteTarget(record)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                          title="Hapus Catatan Logbook"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Hapus</span>
                         </button>
                       )}
                     </div>
@@ -763,9 +898,13 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
                   <Gauge className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base sm:text-lg">Catat Pengoperasian & Pemeriksaan Genset</h3>
+                  <h3 className="font-bold text-base sm:text-lg">
+                    {editingRecordId ? 'Edit Catatan Pengoperasian & Pemeriksaan Genset' : 'Catat Pengoperasian & Pemeriksaan Genset'}
+                  </h3>
                   <p className="text-xs text-slate-300">
-                    Formulir Terpadu: Pra-Operasi, Parameter Running, dan Pasca-Operasi (Satuan Denma)
+                    {editingRecordId
+                      ? `Perbarui rincian log ${nomorLog} & parameter 3 tahap pemeriksaan`
+                      : 'Formulir Terpadu: Pra-Operasi, Parameter Running, dan Pasca-Operasi (Satuan Denma)'}
                   </p>
                 </div>
               </div>
@@ -1398,7 +1537,7 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
                   className="px-6 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  Simpan Catatan Logbook
+                  {editingRecordId ? 'Perbarui Perubahan Logbook' : 'Simpan Catatan Logbook'}
                 </button>
               </div>
 
@@ -1628,7 +1767,22 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
 
             </div>
 
-            <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end">
+            <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between">
+              <div>
+                {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                  <button
+                    onClick={() => {
+                      const target = selectedDetailRecord;
+                      setSelectedDetailRecord(null);
+                      setDeleteTarget(target);
+                    }}
+                    className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold rounded-xl text-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Hapus Logbook
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedDetailRecord(null)}
                 className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs cursor-pointer"
@@ -1805,6 +1959,20 @@ export const OperasionalGenset: React.FC<OperasionalGensetProps> = ({
         onClose={() => setPrintModalRecord(null)}
         record={printModalRecord}
         genset={gensets.find((g) => g.id === printModalRecord?.gensetId)}
+      />
+
+      {/* Confirmation Modal for Deleting Operational Record */}
+      <ConfirmDeleteModal
+        isOpen={deleteTarget !== null}
+        title="Konfirmasi Hapus Catatan Operasional"
+        itemName={deleteTarget ? `${deleteTarget.nomorLog} - ${deleteTarget.gensetName}` : ''}
+        itemDetails={
+          deleteTarget
+            ? `Tanggal: ${deleteTarget.tanggal} · Keperluan: ${deleteTarget.keperluan} · Jam: ${deleteTarget.hourMeterAwal} → ${deleteTarget.hourMeterAkhir || '-'} HM`
+            : undefined
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
       />
 
     </div>

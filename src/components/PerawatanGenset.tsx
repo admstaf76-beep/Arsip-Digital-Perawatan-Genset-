@@ -20,13 +20,17 @@ import {
   DollarSign,
   ChevronRight,
   ShieldCheck,
+  Edit3,
+  Trash2,
 } from 'lucide-react';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface PerawatanGensetProps {
   maintenances: MaintenanceRecord[];
   gensets: GensetItem[];
   activeUser: UserSession;
-  onSaveMaintenance: (record: MaintenanceRecord) => void;
+  onSaveMaintenance: (record: MaintenanceRecord, isNew?: boolean) => void;
+  onDeleteMaintenance: (id: string) => void;
   onApproveMaintenance: (id: string, notes: string) => void;
   onRejectMaintenance: (id: string, notes: string) => void;
   isNewModalOpen: boolean;
@@ -38,6 +42,7 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
   gensets,
   activeUser,
   onSaveMaintenance,
+  onDeleteMaintenance,
   onApproveMaintenance,
   onRejectMaintenance,
   isNewModalOpen,
@@ -53,6 +58,19 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
   const [reviewNotes, setReviewNotes] = useState('');
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [recordToReview, setRecordToReview] = useState<MaintenanceRecord | null>(null);
+
+  // Delete Confirmation Modal State
+  const [deleteTarget, setDeleteTarget] = useState<MaintenanceRecord | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      onDeleteMaintenance(deleteTarget.id);
+      if (selectedDetail?.id === deleteTarget.id) {
+        setSelectedDetail(null);
+      }
+      setDeleteTarget(null);
+    }
+  };
 
   // Form State
   const [formData, setFormData] = useState<Partial<MaintenanceRecord>>({
@@ -79,7 +97,10 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
     return matchGenset && matchFreq && matchCat && matchSearch;
   });
 
+  const [editingMaintenanceId, setEditingMaintenanceId] = useState<string | null>(null);
+
   const handleOpenAdd = () => {
+    setEditingMaintenanceId(null);
     const defaultG = gensets[0];
     setFormData({
       id: `MNT-${Date.now().toString().slice(-6)}`,
@@ -102,18 +123,28 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
     setIsNewModalOpen(true);
   };
 
+  const handleOpenEdit = (m: MaintenanceRecord) => {
+    setEditingMaintenanceId(m.id);
+    setFormData({ ...m });
+    setIsNewModalOpen(true);
+  };
+
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.gensetId || !formData.komponen) return;
 
     const g = gensets.find((item) => item.id === formData.gensetId) || gensets[0];
-    const newRecord: MaintenanceRecord = {
+    const isEditing = Boolean(editingMaintenanceId);
+
+    const recordData: MaintenanceRecord = {
       ...(formData as MaintenanceRecord),
+      id: editingMaintenanceId || formData.id || `MNT-${Date.now().toString().slice(-6)}`,
       gensetName: g.nama,
     };
 
-    onSaveMaintenance(newRecord);
+    onSaveMaintenance(recordData, !isEditing);
     setIsNewModalOpen(false);
+    setEditingMaintenanceId(null);
   };
 
   const handlePhotoUpload = (
@@ -256,7 +287,7 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
               Belum ada riwayat data perawatan sesuai filter.
             </div>
           ) : (
-            filteredMaintenances.map((m) => (
+            filteredMaintenances.map((m, idx) => (
               <div
                 key={m.id}
                 onClick={() => setSelectedDetail(m)}
@@ -264,9 +295,14 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <span className="font-mono text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-bold">
-                      {m.nomorPekerjaan}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold">
+                        No. {idx + 1}
+                      </span>
+                      <span className="font-mono text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-bold">
+                        {m.nomorPekerjaan}
+                      </span>
+                    </div>
                     <h4 className="font-bold text-sm text-slate-900 mt-1">{m.gensetName}</h4>
                     <p className="text-xs text-slate-500 mt-0.5">{m.tanggal} · Teknisi: {m.teknisi}</p>
                   </div>
@@ -306,19 +342,36 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
                   <span className="text-[11px] text-blue-600 font-semibold">
-                    Ketuk untuk detail SPK & foto
+                    Ketuk untuk detail SPK
                   </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedDetail(m);
-                    }}
-                    className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
-                  >
-                    Rincian SPK
-                  </button>
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => setSelectedDetail(m)}
+                      className="px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+                    >
+                      Rincian
+                    </button>
+                    {canInput && (
+                      <button
+                        onClick={() => handleOpenEdit(m)}
+                        className="p-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors"
+                        title="Edit SPK Perawatan"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                      <button
+                        onClick={() => setDeleteTarget(m)}
+                        className="p-1.5 text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors"
+                        title="Hapus SPK Perawatan"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))
@@ -330,6 +383,7 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold uppercase tracking-wider text-[11px]">
               <tr>
+                <th className="py-3 px-3 text-center w-12 font-bold">No.</th>
                 <th className="py-3 px-4">No. SPK</th>
                 <th className="py-3 px-4">Tanggal</th>
                 <th className="py-3 px-4">Genset</th>
@@ -344,18 +398,22 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
             <tbody className="divide-y divide-slate-100">
               {filteredMaintenances.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-500">
+                  <td colSpan={10} className="py-8 text-center text-slate-500">
                     Belum ada riwayat data perawatan sesuai filter.
                   </td>
                 </tr>
               ) : (
-                filteredMaintenances.map((m) => {
+                filteredMaintenances.map((m, idx) => {
                   return (
                     <tr
                       key={m.id}
                       onClick={() => setSelectedDetail(m)}
                       className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                     >
+                      <td className="py-3 px-3 text-center font-mono font-bold text-slate-800">
+                        {idx + 1}
+                      </td>
+
                       <td className="py-3 px-4 font-mono font-bold text-blue-700">
                         {m.nomorPekerjaan}
                       </td>
@@ -429,24 +487,43 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
                       </td>
 
                       <td
-                        className="py-3 px-4 text-right"
+                        className="py-3 px-4 text-right whitespace-nowrap"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {isKadislog && m.approvalStatus === 'Menunggu Review' ? (
-                          <button
-                            onClick={() => handleOpenReview(m)}
-                            className="px-2.5 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-colors cursor-pointer"
-                          >
-                            Review SPK
-                          </button>
-                        ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          {isKadislog && m.approvalStatus === 'Menunggu Review' && (
+                            <button
+                              onClick={() => handleOpenReview(m)}
+                              className="px-2.5 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-colors cursor-pointer"
+                            >
+                              Review
+                            </button>
+                          )}
                           <button
                             onClick={() => setSelectedDetail(m)}
                             className="px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded transition-colors"
                           >
                             Detail
                           </button>
-                        )}
+                          {canInput && (
+                            <button
+                              onClick={() => handleOpenEdit(m)}
+                              className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded transition-colors"
+                              title="Edit SPK Perawatan"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                            <button
+                              onClick={() => setDeleteTarget(m)}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded transition-colors"
+                              title="Hapus SPK Perawatan"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -621,13 +698,41 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
               </div>
             </div>
 
-            <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex justify-end">
-              <button
-                onClick={() => setSelectedDetail(null)}
-                className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors cursor-pointer"
-              >
-                Tutup
-              </button>
+            <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <div>
+                {(activeUser.role === 'ADMIN1' || activeUser.role === 'ADMIN2' || activeUser.role === 'TEKNISI') && (
+                  <button
+                    onClick={() => {
+                      setDeleteTarget(selectedDetail);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Hapus SPK Ini
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {canInput && (
+                  <button
+                    onClick={() => {
+                      const cur = selectedDetail;
+                      setSelectedDetail(null);
+                      handleOpenEdit(cur);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Edit SPK Ini
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedDetail(null)}
+                  className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -638,9 +743,14 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between sticky top-0 z-10">
-              <h3 className="font-bold text-base text-slate-100">
-                Form Input Perawatan Genset (CMMS)
-              </h3>
+              <div>
+                <h3 className="font-bold text-base text-slate-100">
+                  {editingMaintenanceId ? 'Edit Data Perawatan Genset (CMMS)' : 'Form Input Perawatan Genset (CMMS)'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {editingMaintenanceId ? `SPK: ${formData.nomorPekerjaan || ''}` : 'Pencatatan pemeliharaan berkala dan suku cadang'}
+                </p>
+              </div>
               <button
                 onClick={() => setIsNewModalOpen(false)}
                 className="text-slate-400 hover:text-white p-1"
@@ -841,7 +951,7 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
                   type="submit"
                   className="px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-xs cursor-pointer"
                 >
-                  Kirim ke Kadislog (Submit)
+                  {editingMaintenanceId ? 'Perbarui Data Perawatan' : 'Kirim ke Kadislog (Submit)'}
                 </button>
               </div>
             </form>
@@ -909,6 +1019,20 @@ export const PerawatanGenset: React.FC<PerawatanGensetProps> = ({
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Deleting Maintenance Record */}
+      <ConfirmDeleteModal
+        isOpen={deleteTarget !== null}
+        title="Konfirmasi Hapus SPK Perawatan"
+        itemName={deleteTarget ? `${deleteTarget.nomorPekerjaan} - ${deleteTarget.gensetName}` : ''}
+        itemDetails={
+          deleteTarget
+            ? `Tanggal: ${deleteTarget.tanggal} · Komponen: ${deleteTarget.komponen} · Kategori: ${deleteTarget.kategori} · Teknisi: ${deleteTarget.teknisi}`
+            : undefined
+        }
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 };
